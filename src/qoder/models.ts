@@ -71,6 +71,23 @@ export const MODEL_ALIASES: Record<string, string> = {
   "minimax-m3": "mmodel",
 };
 
+/**
+ * Suffix appended to every advertised model id so a client that talks to
+ * several relay-backed providers can tell this one apart (`auto` included).
+ * Rendered as `<id> · Qoder-CN`.
+ */
+export const MODEL_ID_SUFFIX = " · Qoder-CN";
+
+/** Append the provider suffix to a bare alias / wire key unless already present. */
+export function withModelSuffix(id: string): string {
+  return id.endsWith(MODEL_ID_SUFFIX) ? id : `${id}${MODEL_ID_SUFFIX}`;
+}
+
+/** Strip the provider suffix so the bare alias can still be resolved. */
+export function stripModelSuffix(id: string): string {
+  return id.endsWith(MODEL_ID_SUFFIX) ? id.slice(0, -MODEL_ID_SUFFIX.length) : id;
+}
+
 /** Minimal static fallback if the live catalog is unavailable. */
 const STATIC_FALLBACK: ModelDef[] = [
   {
@@ -196,21 +213,24 @@ const STATIC_FALLBACK: ModelDef[] = [
 ];
 
 /**
- * Build the advertised catalog: friendly aliases plus the `auto` default.
- * Raw upstream wire keys are intentionally hidden from `/v1/models`; a caller
- * that already knows a wire key can still use it directly.
+ * Build the advertised catalog: friendly aliases plus the `auto` default, each
+ * carrying the ` · Qoder-CN` suffix. Raw upstream wire keys are intentionally
+ * hidden from `/v1/models`; a caller that already knows a wire key (with or
+ * without the suffix) can still use it directly.
  */
 function toAdvertised(defs: ModelDef[]): ModelDef[] {
   const byWireKey = new Map<string, ModelDef>();
   for (const def of defs) if (!byWireKey.has(def.wireKey)) byWireKey.set(def.wireKey, def);
 
-  const advertised = new Map<string, ModelDef>();
-  advertised.set("auto", byWireKey.get("auto") ?? (STATIC_FALLBACK[0] as ModelDef));
+  const advertised: ModelDef[] = [];
+  const autoDef = byWireKey.get("auto") ?? (STATIC_FALLBACK[0] as ModelDef);
+  advertised.push({ ...autoDef, id: withModelSuffix("auto") });
   for (const [alias, target] of Object.entries(MODEL_ALIASES)) {
     const def = byWireKey.get(target);
-    if (def) advertised.set(alias, { ...def, id: alias, name: `${def.name} (${alias})` });
+    if (!def) continue;
+    advertised.push({ ...def, id: withModelSuffix(alias), name: `${def.name} (${alias})` });
   }
-  return [...advertised.values()];
+  return advertised;
 }
 
 function contextWindowOf(entry: QoderModelEntry): number {
@@ -307,13 +327,14 @@ export class QoderModelCatalog {
     return this.models.length > 0 ? this.models : toAdvertised(STATIC_FALLBACK);
   }
 
-  /** Resolve an alias / friendly id to the upstream wire key. */
+  /** Resolve an advertised id / friendly alias to the upstream wire key. */
   resolveWireKey(modelId: string): string {
-    if (!modelId) return "auto";
-    if (this.entries.has(modelId)) return modelId;
-    const alias = MODEL_ALIASES[modelId];
+    const id = stripModelSuffix(modelId ?? "");
+    if (!id) return "auto";
+    if (this.entries.has(id)) return id;
+    const alias = MODEL_ALIASES[id];
     if (alias) return alias;
-    return modelId;
+    return id;
   }
 
   /** Catalog entry (with thinking_config etc.) for a requested model id. */

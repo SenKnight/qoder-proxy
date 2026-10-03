@@ -162,7 +162,7 @@ curl -N http://127.0.0.1:8787/v1/chat/completions \
 | --- | --- |
 | Base URL | `http://<host>:8787/v1` |
 | API Key | `RELAY_API_KEY` 的值（如未设置可任意填） |
-| Model | `auto` 或任意目录内模型 id |
+| Model | `auto` 或任意目录内模型 id（带 ` · Qoder-CN` 后缀与原别名均可） |
 
 例如：
 
@@ -176,9 +176,9 @@ export OPENAI_API_KEY=$RELAY_API_KEY
 
 ## 模型
 
-`GET /v1/models` 只宣传**友好别名**（外加默认的 `auto`），**不暴露上游 wire key**。`auto` 与任意已知 wire key 仍可直接调用，服务端会自动解析回真实 key。
+`GET /v1/models` 只宣传**友好别名**（外加默认的 `auto`），**不暴露上游 wire key**；每个 id 都会追加 ` · Qoder-CN` 后缀，便于客户端在多个 provider 之间区分。调用 `POST /v1/chat/completions` 时，`model` 既可写带后缀的 id（如 `qwen3.7-plus · Qoder-CN`），也可写原始别名或已知 wire key，服务端会自动解析回真实 key。
 
-| 别名（`/v1/models` 中的 id） | 上游 wire key |
+| 别名（`/v1/models` 中的 id 为 `别名 · Qoder-CN`） | 上游 wire key |
 | --- | --- |
 | `auto` | `auto`（默认模型） |
 | `qwen3.7-max` | `qmodel_latest` |

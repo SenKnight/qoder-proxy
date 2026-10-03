@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MODEL_ALIASES, QoderModelCatalog } from "../src/qoder/models.js";
+import { MODEL_ALIASES, MODEL_ID_SUFFIX, QoderModelCatalog } from "../src/qoder/models.js";
 
 function makeCatalog(): QoderModelCatalog {
   return new QoderModelCatalog(
@@ -23,17 +23,20 @@ describe("QoderModelCatalog", () => {
   it("resolves aliases before the live catalog is loaded", () => {
     const catalog = makeCatalog();
     expect(catalog.resolveWireKey("qwen3.7-plus")).toBe("qmodel");
+    expect(catalog.resolveWireKey(`qwen3.7-plus${MODEL_ID_SUFFIX}`)).toBe("qmodel");
     expect(catalog.resolveWireKey("auto")).toBe("auto");
+    expect(catalog.resolveWireKey(`auto${MODEL_ID_SUFFIX}`)).toBe("auto");
     expect(catalog.resolveWireKey("qmodel_latest")).toBe("qmodel_latest");
     expect(catalog.resolveWireKey("totally-unknown")).toBe("totally-unknown");
   });
 
-  it("exposes a static fallback model list", () => {
+  it("exposes a static fallback model list with the provider suffix", () => {
     const catalog = makeCatalog();
     const list = catalog.list();
     expect(list.length).toBeGreaterThan(0);
-    expect(list.some((m) => m.id === "auto")).toBe(true);
-    // Raw upstream wire keys are not advertised.
+    expect(list.some((m) => m.id === `auto${MODEL_ID_SUFFIX}`)).toBe(true);
+    // Raw upstream wire keys are not advertised, with or without the suffix.
+    expect(list.some((m) => m.id === `qmodel${MODEL_ID_SUFFIX}`)).toBe(false);
     expect(list.some((m) => m.id === "qmodel")).toBe(false);
   });
 

@@ -2,8 +2,6 @@
 
 一个**独立的中转站服务**，把 [Qoder](https://qoder.com) 的大模型能力以 **OpenAI 兼容 API** 的形式提供给任何 AI agent / 客户端。
 
-它把 `pi-provider-qoder` 中逆向并验证过的私有接口逻辑（PAT 换 Job Token、COSY 签名、WAF 请求体编码、SSE 信封解析、thinking 抽取）抽取为一个**零运行时依赖**的 Node.js HTTP 服务，不依赖 pi / OMP 宿主。
-
 > ⚠️ 本项目调用的是 Qoder 官方客户端使用的**内部接口**（逆向整理，非公开契约），随时可能变更。请以真实响应为准，并遵守 Qoder 的服务条款。
 
 ---
@@ -63,7 +61,15 @@ export QODER_PAT=pt-xxxxxxxx
 qoder-transfer --pat pt-xxxxxxxx --port 8787
 ```
 
-最少只需一个上游 PAT（`--pat` 或 `QODER_PAT`）。
+最少只需一个上游 PAT（`--pat` 或 `QODER_PAT`）。PAT 是 `pt-` 开头的字符串，需在 **Qoder 控制台的「账号集成」（Integrations）页面**创建，**仅在生成时显示一次，请立即保存**。请按你的部署形态到对应地址获取：
+
+| 部署形态 | 获取 PAT 的地址 | 使用的配置项 |
+| --- | --- | --- |
+| 国际版（Global） | <https://qoder.com/account/integrations> | `--pat` / `QODER_PAT` |
+| 中国版（CN） | <https://qoder.cn/account/integrations> | `QODERCN_PAT`（提供后自动按 CN 处理） |
+| 中国版企业 VPC | `https://<实例名>.vpc.qoder.com.cn/account/integrations` | `QODERCN_PAT` + `QODER_VPC_INSTANCE=<实例名>` |
+
+> 企业 VPC 必须使用**该租户自己的面板**签发的 PAT；用公网 PAT 会返回 `CSRFInvalid`，详见「区域与 VPC」。
 
 客户端访问密钥（`--api-key` / `RELAY_API_KEY`）**默认是没有的**，此时服务端不校验鉴权；**强烈建议设置**一个强随机串，详见「接入 AI agent」。
 
@@ -122,7 +128,7 @@ export OPENAI_API_KEY=$RELAY_API_KEY
 
 | 命令行参数 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `--pat <token>` | `QODER_PAT` / `QODER_PERSONAL_ACCESS_TOKEN` | — | **必填**。Global 或 CN 的 PAT（`pt-...`）。 |
+| `--pat <token>` | `QODER_PAT` / `QODER_PERSONAL_ACCESS_TOKEN` | — | **必填**。Global 或 CN 的 PAT（`pt-...`），获取地址见「2. 配置」。 |
 | — | `QODERCN_PAT` / `QODERCN_PERSONAL_ACCESS_TOKEN` | — | CN PAT；提供时自动按 CN 区域处理。 |
 | — | `QODER_API_KEY` | — | 仅当值以 `pt-` 开头时作为 PAT 别名。 |
 | `--mode <global>` 或 `<cn>` | `QODER_MODE` / `QODER_REGION` / `QODER_BACKEND` | 自动推断 | 区域。 |
@@ -204,18 +210,6 @@ curl -N http://127.0.0.1:8787/v1/chat/completions \
 | `kimi-k2.6` | `kmodel` |
 | `minimax-m2.7` / `minimax-m3` | `mmodel` |
 
----
-
-## 区域与 VPC
-
-| 用途 | Global | CN 公有云 | CN 企业 VPC |
-| --- | --- | --- | --- |
-| Gateway | `https://api3.qoder.sh/` | `https://gateway.qoder.com.cn/` | `https://<inst>-gateway.vpc.qoder.com.cn/` |
-| OpenAPI | `https://openapi.qoder.sh` | `https://openapi.qoder.com.cn` | `https://<inst>-openapi.vpc.qoder.com.cn` |
-
-- VPC 场景请使用**该租户签发**的 PAT（`https://<inst>.vpc.qoder.com.cn/account/integrations`）。
-- `<inst>.vpc.qoder.com.cn` 是**租户面板**而非 API 主机，直接打它做 exchange/COSY 会返回 `CSRFInvalid`。
-- 遇到 `CSRFInvalid` 或 `open_access_token not found` 时，开启 `QODER_COSY_DEBUG=1` 并核对 `QODER_VPC_INSTANCE` 与 PAT 归属。
 
 ---
 
@@ -275,12 +269,6 @@ docker run --rm -p 8787:8787 -e QODER_PAT=pt-xxx -e RELAY_API_KEY=secret qoder-t
 ## 发布
 
 通过 GitHub Actions 自动发布到 npm，工作流见 [`.github/workflows/publish.yml`](.github/workflows/publish.yml)。
-
-### 一次性准备
-
-1. **仓库地址**：`package.json` 的 `repository` / `homepage` / `bugs` 已指向 `github.com/SenKnight/qoder-transfer`。
-2. **配置 npm 令牌**：在 <https://www.npmjs.com/settings/~/tokens> 生成一个 **Automation** 类型的 Access Token，然后在 GitHub 仓库的 `Settings → Secrets and variables → Actions` 新增名为 **`NPM_TOKEN`** 的 secret。
-3. 确认 `package.json` 的 `name`（`qoder-transfer`）在 npm 上可用，或改用作用域名（如 `@you/qoder-transfer`）。
 
 ### 发布流程
 

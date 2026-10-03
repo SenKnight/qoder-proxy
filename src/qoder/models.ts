@@ -1,3 +1,4 @@
+import type { QoderMode } from "../config.js";
 import { logger } from "../logger.js";
 import {
   buildAuthHeaders,
@@ -72,20 +73,31 @@ export const MODEL_ALIASES: Record<string, string> = {
 };
 
 /**
- * Suffix appended to every advertised model id so a client that talks to
- * several relay-backed providers can tell this one apart (`auto` included).
- * Rendered as `<id> · Qoder-CN`.
+ * Region-specific suffix appended to every advertised model id so a client that
+ * talks to several relay-backed providers can tell this one apart (`auto`
+ * included), e.g. `auto · Qoder-CN` on CN and `auto · Qoder` on Global.
  */
-export const MODEL_ID_SUFFIX = " · Qoder-CN";
+const MODEL_ID_SUFFIXES: Record<QoderMode, string> = {
+  cn: " · Qoder-CN",
+  global: " · Qoder",
+};
 
-/** Append the provider suffix to a bare alias / wire key unless already present. */
-export function withModelSuffix(id: string): string {
-  return id.endsWith(MODEL_ID_SUFFIX) ? id : `${id}${MODEL_ID_SUFFIX}`;
+/** Suffix used for a region. */
+export function modelIdSuffix(mode: QoderMode): string {
+  return MODEL_ID_SUFFIXES[mode] ?? MODEL_ID_SUFFIXES.global;
 }
 
-/** Strip the provider suffix so the bare alias can still be resolved. */
+/** Drop any known region suffix so a suffixed id maps back to its bare alias. */
 export function stripModelSuffix(id: string): string {
-  return id.endsWith(MODEL_ID_SUFFIX) ? id.slice(0, -MODEL_ID_SUFFIX.length) : id;
+  for (const suffix of Object.values(MODEL_ID_SUFFIXES)) {
+    if (id.endsWith(suffix)) return id.slice(0, -suffix.length);
+  }
+  return id;
+}
+
+/** Advertised id for a bare alias / wire key in the given region. */
+export function withModelSuffix(id: string, mode: QoderMode): string {
+  return `${stripModelSuffix(id)}${modelIdSuffix(mode)}`;
 }
 
 /** Minimal static fallback if the live catalog is unavailable. */
@@ -214,21 +226,21 @@ const STATIC_FALLBACK: ModelDef[] = [
 
 /**
  * Build the advertised catalog: friendly aliases plus the `auto` default, each
- * carrying the ` · Qoder-CN` suffix. Raw upstream wire keys are intentionally
- * hidden from `/v1/models`; a caller that already knows a wire key (with or
- * without the suffix) can still use it directly.
+ * carrying the region suffix. Raw upstream wire keys are intentionally hidden
+ * from `/v1/models`; a caller that already knows a wire key (with or without
+ * the suffix) can still use it directly.
  */
-function toAdvertised(defs: ModelDef[]): ModelDef[] {
+function toAdvertised(defs: ModelDef[], mode: QoderMode): ModelDef[] {
   const byWireKey = new Map<string, ModelDef>();
   for (const def of defs) if (!byWireKey.has(def.wireKey)) byWireKey.set(def.wireKey, def);
 
   const advertised: ModelDef[] = [];
   const autoDef = byWireKey.get("auto") ?? (STATIC_FALLBACK[0] as ModelDef);
-  advertised.push({ ...autoDef, id: withModelSuffix("auto") });
+  advertised.push({ ...autoDef, id: withModelSuffix("auto", mode) });
   for (const [alias, target] of Object.entries(MODEL_ALIASES)) {
     const def = byWireKey.get(target);
     if (!def) continue;
-    advertised.push({ ...def, id: withModelSuffix(alias), name: `${def.name} (${alias})` });
+    advertised.push({ ...def, id: withModelSuffix(alias, mode), name: `${def.name} (${alias})` });
   }
   return advertised;
 }
@@ -317,14 +329,14 @@ export class QoderModelCatalog {
     }
 
     this.entries = entries;
-    this.models = toAdvertised(defs);
+    this.models = toAdvertised(defs, this.route.mode);
     this.updatedAt = Date.now();
     logger.info("model catalog refreshed", { advertised: this.models.length, upstream: entries.size });
   }
 
   /** Advertised models: friendly aliases plus `auto` (raw wire keys omitted). */
   list(): ModelDef[] {
-    return this.models.length > 0 ? this.models : toAdvertised(STATIC_FALLBACK);
+    return this.models.length > 0 ? this.models : toAdvertised(STATIC_FALLBACK, this.route.mode);
   }
 
   /** Resolve an advertised id / friendly alias to the upstream wire key. */

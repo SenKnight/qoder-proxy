@@ -65,6 +65,8 @@ qoder-transfer --pat pt-xxxxxxxx --port 8787
 
 最少只需一个上游 PAT（`--pat` 或 `QODER_PAT`）。
 
+客户端访问密钥（`--api-key` / `RELAY_API_KEY`）**默认是没有的**，此时服务端不校验鉴权；**强烈建议设置**一个强随机串，详见「接入 AI agent」。
+
 ### 3. 运行
 
 ```bash
@@ -88,6 +90,32 @@ npm run dev
 
 ---
 
+## 接入 AI agent
+
+任何支持自定义 OpenAI Base URL 的客户端都可以接入：
+
+| 配置 | 值 |
+| --- | --- |
+| Base URL | `http://<host>:8787/v1` |
+| API Key | `RELAY_API_KEY` 的值；**未设置时也必须随便填一个** |
+| Model | `auto` 或任意目录内模型 id（带区域后缀或原别名均可，如 `auto · Qoder-CN`） |
+
+例如：
+
+```bash
+# 通用 OpenAI SDK
+export OPENAI_BASE_URL=http://127.0.0.1:8787/v1
+export OPENAI_API_KEY=$RELAY_API_KEY
+```
+
+> **⚠️ 关于访问密钥（API Key）**
+>
+> - **默认没有**：未设置 `RELAY_API_KEY` / `--api-key` 时，`auth_required` 为 `false`，服务端不校验，任何请求都放行。
+> - **强烈建议设置**：用 `RELAY_API_KEY=<强随机串>`（或 `--api-key <强随机串>`），避免同机其他进程/用户直接调用本服务。
+> - **配置提供商时必须填一个非空 API Key**：即使服务端没设密钥，也要在客户端里**随便填一个**（如 `sk-noauth`）。多数 agent / SDK 在 API Key 为空时会直接报「缺少 API key」而拒绝发送请求，导致接口调用失败（尽管服务端本身并不校验）。
+
+---
+
 ## 配置项
 
 优先级：**命令行参数 > 环境变量 > 默认值**。
@@ -99,7 +127,7 @@ npm run dev
 | — | `QODER_API_KEY` | — | 仅当值以 `pt-` 开头时作为 PAT 别名。 |
 | `--mode <global>` 或 `<cn>` | `QODER_MODE` / `QODER_REGION` / `QODER_BACKEND` | 自动推断 | 区域。 |
 | `--vpc <instance>` | `QODER_VPC_INSTANCE` | — | CN 企业 VPC 实例名（如 `xxx-of-enterprise`），自动派生 `-gateway` / `-openapi` 主机。 |
-| `--api-key <key>` | `RELAY_API_KEY` | 空 | 客户端访问密钥。为空则不校验鉴权。 |
+| `--api-key <key>` | `RELAY_API_KEY` | 空 | 客户端访问密钥。**默认为空（不校验）**，强烈建议设为强随机串；详见「接入 AI agent」。 |
 | `--host <addr>` | `HOST` | `127.0.0.1` | 监听地址。 |
 | `-p, --port <port>` | `PORT` | `8787` | 监听端口。 |
 | `--default-model <id>` | `QODER_DEFAULT_MODEL` | `auto` | 请求未带 `model` 时的默认模型。 |
@@ -150,35 +178,21 @@ curl -N http://127.0.0.1:8787/v1/chat/completions \
 
 ### `GET /health`
 
-无需鉴权，返回服务状态。
+无需鉴权，返回服务状态：
 
----
-
-## 接入 AI agent
-
-任何支持自定义 OpenAI Base URL 的客户端都可以接入：
-
-| 配置 | 值 |
-| --- | --- |
-| Base URL | `http://<host>:8787/v1` |
-| API Key | `RELAY_API_KEY` 的值（如未设置可任意填） |
-| Model | `auto` 或任意目录内模型 id（带 ` · Qoder-CN` 后缀与原别名均可） |
-
-例如：
-
-```bash
-# 通用 OpenAI SDK
-export OPENAI_BASE_URL=http://127.0.0.1:8787/v1
-export OPENAI_API_KEY=$RELAY_API_KEY
+```json
+{"status":"ok","service":"qoder-transfer","version":"x.y.z","mode":"cn","auth_required":false,"default_model":"auto"}
 ```
+
+`version` 为当前服务版本（启动日志的同名字段也会打印）；`auth_required` 为 `false` 表示未启用客户端鉴权。
 
 ---
 
 ## 模型
 
-`GET /v1/models` 只宣传**友好别名**（外加默认的 `auto`），**不暴露上游 wire key**；每个 id 都会追加 ` · Qoder-CN` 后缀，便于客户端在多个 provider 之间区分。调用 `POST /v1/chat/completions` 时，`model` 既可写带后缀的 id（如 `qwen3.7-plus · Qoder-CN`），也可写原始别名或已知 wire key，服务端会自动解析回真实 key。
+`GET /v1/models` 只宣传**友好别名**（外加默认的 `auto`），**不暴露上游 wire key**；每个 id 都会追加**区域后缀**，便于客户端在多个 provider 之间区分——CN 为 ` · Qoder-CN`，Global 为 ` · Qoder`（默认模型 `auto` 也带后缀）。调用 `POST /v1/chat/completions` 时，`model` 既可写带后缀的 id（如 `qwen3.7-plus · Qoder-CN`），也可写原始别名或已知 wire key，服务端会自动解析回真实 key。
 
-| 别名（`/v1/models` 中的 id 为 `别名 · Qoder-CN`） | 上游 wire key |
+| 别名（`/v1/models` 中的 id = `别名` + 区域后缀） | 上游 wire key |
 | --- | --- |
 | `auto` | `auto`（默认模型） |
 | `qwen3.7-max` | `qmodel_latest` |

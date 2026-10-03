@@ -17,6 +17,7 @@ import { QoderAuth } from "./qoder/auth.js";
 import { streamQoderChat } from "./qoder/chat.js";
 import type { QoderRoute } from "./qoder/cosy.js";
 import { QoderModelCatalog } from "./qoder/models.js";
+import { VERSION } from "./version.js";
 
 export interface RelayContext {
   config: Config;
@@ -355,6 +356,7 @@ async function route(ctx: RelayContext, req: IncomingMessage, res: ServerRespons
     sendJson(res, 200, {
       status: "ok",
       service: "qoder-transfer",
+      version: VERSION,
       mode: ctx.config.mode,
       auth_required: Boolean(ctx.config.clientApiKey),
       default_model: ctx.config.defaultModel,

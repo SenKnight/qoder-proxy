@@ -50,6 +50,7 @@ async function main(): Promise<void> {
 
   server.listen(config.port, config.host, () => {
     logger.info("qoder-transfer listening", {
+      version: VERSION,
       url: `http://${config.host}:${config.port}`,
       mode: config.mode,
       vpc: config.vpcInstance ?? "public",

@@ -2,8 +2,10 @@ import { createServer as httpCreateServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Config } from "../src/config.js";
-import { MODEL_ID_SUFFIX } from "../src/qoder/models.js";
+import { modelIdSuffix } from "../src/qoder/models.js";
 import { createRelay, createRelayServer, type RelayContext } from "../src/server.js";
+
+const CN_SUFFIX = modelIdSuffix("cn");
 
 let upstream: Server;
 let relay: Server;
@@ -146,10 +148,10 @@ describe("relay HTTP surface", () => {
     const body = (await res.json()) as { object: string; data: Array<{ id: string }> };
     expect(body.object).toBe("list");
     const ids = body.data.map((m) => m.id);
-    expect(ids).toContain(`auto${MODEL_ID_SUFFIX}`);
-    expect(ids).toContain(`qwen3.7-plus${MODEL_ID_SUFFIX}`);
-    expect(ids).not.toContain(`qmodel${MODEL_ID_SUFFIX}`);
-    expect(ids).not.toContain(`disabled${MODEL_ID_SUFFIX}`);
+    expect(ids).toContain(`auto${CN_SUFFIX}`);
+    expect(ids).toContain(`qwen3.7-plus${CN_SUFFIX}`);
+    expect(ids).not.toContain(`qmodel${CN_SUFFIX}`);
+    expect(ids).not.toContain(`disabled${CN_SUFFIX}`);
   });
 
   it("streams an OpenAI-compatible completion", async () => {
@@ -196,7 +198,7 @@ describe("relay HTTP surface", () => {
       method: "POST",
       headers: { Authorization: "Bearer secret-key", "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: `qwen3.7-plus${MODEL_ID_SUFFIX}`,
+        model: `qwen3.7-plus${CN_SUFFIX}`,
         messages: [{ role: "user", content: "weather in paris" }],
         tools: [{ type: "function", function: { name: "get_weather" } }],
       }),

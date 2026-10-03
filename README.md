@@ -264,7 +264,7 @@ docker run --rm -p 8787:8787 -e QODER_PAT=pt-xxx -e RELAY_API_KEY=secret qoder-t
 
 ### 一次性准备
 
-1. **替换仓库占位符**：把 `package.json` 与 `README.md` 中的 `OWNER` 改成你的 GitHub 用户名 / 组织名。
+1. **仓库地址**：`package.json` 的 `repository` / `homepage` / `bugs` 已指向 `github.com/SenKnight/qoder-transfer`。
 2. **配置 npm 令牌**：在 <https://www.npmjs.com/settings/~/tokens> 生成一个 **Automation** 类型的 Access Token，然后在 GitHub 仓库的 `Settings → Secrets and variables → Actions` 新增名为 **`NPM_TOKEN`** 的 secret。
 3. 确认 `package.json` 的 `name`（`qoder-transfer`）在 npm 上可用，或改用作用域名（如 `@you/qoder-transfer`）。
 

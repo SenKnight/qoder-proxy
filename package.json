@@ -6,11 +6,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/OWNER/qoder-transfer.git"
+    "url": "git+https://github.com/SenKnight/qoder-transfer.git"
   },
-  "homepage": "https://github.com/OWNER/qoder-transfer#readme",
+  "homepage": "https://github.com/SenKnight/qoder-transfer#readme",
   "bugs": {
-    "url": "https://github.com/OWNER/qoder-transfer/issues"
+    "url": "https://github.com/SenKnight/qoder-transfer/issues"
   },
   "publishConfig": {
     "access": "public"

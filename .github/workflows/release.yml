@@ -1,8 +1,9 @@
-name: Publish
+name: Release
 
 on:
-  release:
-    types: [published]
+  # Pushing a vX.Y.Z tag (e.g. via `npm run release`) triggers a release.
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
@@ -19,8 +20,8 @@ permissions:
   id-token: write # npm provenance (OIDC)
 
 jobs:
-  publish:
-    name: Publish
+  release:
+    name: Release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -42,11 +43,11 @@ jobs:
           npm run lint
           npm test
 
-      # Target release tag: the triggering release, or the manual `tag` input.
+      # Target release tag: the pushed tag, or the manual `tag` input.
       - name: Resolve release tag
         id: rel
-        if: github.event_name == 'release' || inputs.tag != ''
-        run: echo "tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
+        if: github.event_name == 'push' || inputs.tag != ''
+        run: echo "tag=${{ github.event_name == 'push' && github.ref_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
 
       # A tag vX.Y.Z must match the version in package.json.
       - name: Ensure release tag matches package version
@@ -74,8 +75,7 @@ jobs:
             dist/index.js
           if-no-files-found: error
 
-      # Attach the same artifacts to the GitHub Release. Created with GITHUB_TOKEN,
-      # so it will not re-trigger the release event.
+      # Attach the same artifacts to the GitHub Release (created on the first run).
       - name: Attach artifacts to the GitHub Release
         if: steps.rel.outputs.tag != ''
         env:
@@ -88,7 +88,7 @@ jobs:
           gh release upload "$tag" qoder-transfer-*.tgz dist/index.js --clobber
 
       - name: Publish to npm
-        if: github.event_name == 'release' || inputs.publish
+        if: github.event_name == 'push' || inputs.publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |

@@ -266,32 +266,42 @@ docker run --rm -p 8787:8787 -e QODER_PAT=pt-xxx -e RELAY_API_KEY=secret qoder-t
 
 ## 发布
 
-通过 GitHub Actions 自动发布到 npm，工作流见 [`.github/workflows/publish.yml`](.github/workflows/publish.yml)。
+通过 GitHub Actions 自动发布到 npm，工作流见 [`.github/workflows/release.yml`](.github/workflows/release.yml)。
+
+### 一键发布（推荐）
+
+```bash
+npm run release            # 默认 patch；可传 minor / major
+```
+
+脚本会依次：校验工作区干净且位于 `main` → `check / lint / test / build` → `npm version <bump>` → `git push origin main --follow-tags`。
 
 ### 发布流程
 
+**推送 `v*` 标签即会触发发布**：
+
 ```bash
-# 1. 升版本（会自动创建 commit 与 v 标签）
+# 1. 升版本（自动创建 commit 与 v 标签）
 npm version patch   # 或 minor / major
 
-# 2. 推送提交与标签
+# 2. 推送提交与标签（推送标签即触发 Release 工作流）
 git push origin main --follow-tags
 ```
 
-然后在 GitHub 上基于该标签创建并 **发布 Release**（标签须为 `vX.Y.Z`，与 `package.json` 版本一致，工作流会校验）。`release: published` 事件触发 `Publish` 工作流，依次执行类型检查、Lint、测试、构建，并以 `--provenance` 发布到 npm。
+标签须为 `vX.Y.Z` 且与 `package.json` 的 `version` 一致（工作流会校验）。`push: tags: ["v*"]` 事件触发 `Release` 工作流，依次执行类型检查、Lint、测试、构建，然后**自动创建对应的 GitHub Release**，并以 `--provenance` 发布到 npm。
 
 ### 发布产物
 
-每次运行 `Publish` 会将构建产物同时：
+每次运行 `Release` 会将构建产物同时：
 
 - 作为 **workflow artifact** 上传（名 `qoder-transfer-<ref>`）；
-- 在 `release` 事件或手动指定 `tag` 时，**挂载到对应的 GitHub Release**，包括 `qoder-transfer-<version>.tgz`（npm 包）与 `dist/index.js`（独立 bundle）。
+- **挂载到对应的 GitHub Release**（不存在时自动创建），包括 `qoder-transfer-<version>.tgz`（npm 包）与 `dist/index.js`（独立 bundle）。
 
 若版本已在 npm 上存在，`npm publish` 步骤会自动跳过（幂等）。
 
 ### 手动触发
 
-在 `Actions → Publish → Run workflow` 可手动运行，输入：
+在 `Actions → Release → Run workflow` 可手动运行，输入：
 
 | 输入 | 类型 | 说明 |
 | --- | --- | --- |
@@ -302,7 +312,7 @@ git push origin main --follow-tags
 
 - Git 标签格式 `vX.Y.Z` 必须与 `package.json` 的 `version` 完全一致。
 - 发布使用 npm provenance（`id-token: write` + `--provenance`），需仓库为 **public**；若为私有仓库，请从工作流中移除 `--provenance`。
-- 也可改用 npm **Trusted Publishing（OIDC）**：在 npm 包设置中绑定本仓库与 `publish.yml`，即可无需 `NPM_TOKEN`。
+- 也可改用 npm **Trusted Publishing（OIDC）**：在 npm 包设置中绑定本仓库与 `release.yml`，即可无需 `NPM_TOKEN`。
 
 ### CI
 

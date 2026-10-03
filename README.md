@@ -1,6 +1,8 @@
 # qoder-transfer
 
 一个**独立的中转站服务**，把 [Qoder](https://qoder.com) 的大模型能力以 **OpenAI 兼容 API** 的形式提供给任何 AI agent / 客户端。
+灵感源自 [minglu6/pi-provider-qoder](https://github.com/minglu6/pi-provider-qoder)
+
 
 > ⚠️ 本项目调用的是 Qoder 官方客户端使用的**内部接口**（逆向整理，非公开契约），随时可能变更。请以真实响应为准，并遵守 Qoder 的服务条款。
 
@@ -9,10 +11,6 @@
 ## 特性
 
 - **OpenAI 兼容**：提供 `GET /v1/models` 与 `POST /v1/chat/completions`（支持流式与非流式）。
-- **完整认证链路**：PAT(`pt-...`) → Job Token(`jt-...`) 自动交换，并用 Job Refresh Token(`jrt-...`) 自动续期；被拒绝时自动回退重新交换。
-- **COSY 签名**：完整复刻 `Authorization: Bearer COSY.*`、`Cosy-*` 头（RSA / AES-128-CBC / MD5）。
-- **WAF 绕过**：聊天请求体自动执行 `Encode=1` 编码。
-- **动态模型目录**：从 `/algo/api/v2/model/list` 拉取并缓存，附带静态兜底与友好别名（如 `qwen3.7-plus`）。
 - **推理内容**：透传 `reasoning_content`，客户端可展示思考过程。
 - **工具调用**：透传 OpenAI `tools` / `tool_calls`，支持 agent 工具循环。
 - **区域与 VPC**：支持 Global、CN 公有云、以及 CN 企业 VPC（实例名 → 派生 `-gateway` / `-openapi` 主机）。

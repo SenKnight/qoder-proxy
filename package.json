@@ -1,0 +1,56 @@
+{
+  "name": "qoder-transfer",
+  "version": "0.1.0",
+  "description": "Standalone OpenAI-compatible relay that exposes Qoder large models to AI agents",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OWNER/qoder-transfer.git"
+  },
+  "homepage": "https://github.com/OWNER/qoder-transfer#readme",
+  "bugs": {
+    "url": "https://github.com/OWNER/qoder-transfer/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "qoder-transfer": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "qoder",
+    "openai",
+    "relay",
+    "proxy",
+    "llm",
+    "ai-agent"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "check": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.2",
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.9"
+  }
+}

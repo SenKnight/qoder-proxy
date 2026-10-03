@@ -16,7 +16,7 @@
     "access": "public"
   },
   "bin": {
-    "qoder-transfer": "./dist/index.js"
+    "qoder-transfer": "dist/index.js"
   },
   "files": [
     "dist",

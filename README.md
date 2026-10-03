@@ -278,7 +278,25 @@ npm version patch   # 或 minor / major
 git push origin main --follow-tags
 ```
 
-然后在 GitHub 上基于该标签创建并 **发布 Release**（标签须为 `vX.Y.Z`，与 `package.json` 版本一致，工作流会校验）。`release: published` 事件触发 `Publish` 工作流，依次执行类型检查、Lint、测试、构建，并以 `--provenance` 发布到 npm。也可在 `Actions → Publish → Run workflow` 手动触发。
+然后在 GitHub 上基于该标签创建并 **发布 Release**（标签须为 `vX.Y.Z`，与 `package.json` 版本一致，工作流会校验）。`release: published` 事件触发 `Publish` 工作流，依次执行类型检查、Lint、测试、构建，并以 `--provenance` 发布到 npm。
+
+### 发布产物
+
+每次运行 `Publish` 会将构建产物同时：
+
+- 作为 **workflow artifact** 上传（名 `qoder-transfer-<ref>`）；
+- 在 `release` 事件或手动指定 `tag` 时，**挂载到对应的 GitHub Release**，包括 `qoder-transfer-<version>.tgz`（npm 包）与 `dist/index.js`（独立 bundle）。
+
+若版本已在 npm 上存在，`npm publish` 步骤会自动跳过（幂等）。
+
+### 手动触发
+
+在 `Actions → Publish → Run workflow` 可手动运行，输入：
+
+| 输入 | 类型 | 说明 |
+| --- | --- | --- |
+| `tag` | string | 将产物挂载到该 Release 标签（不存在时自动创建；用 `GITHUB_TOKEN` 创建，不会再次触发事件） |
+| `publish` | boolean | 是否将当前版本发布到 npm（默认 `false`） |
 
 ### 约定与说明
 

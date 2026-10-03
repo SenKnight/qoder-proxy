@@ -4,21 +4,30 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Attach the build artifacts to this GitHub Release tag (the release is created if missing).
+        type: string
+        required: false
+      publish:
+        description: Publish the current package version to npm.
+        type: boolean
+        default: false
 
 permissions:
-  contents: read
-  id-token: write # required for npm provenance (OIDC)
+  contents: write # create/update the GitHub Release and upload assets
+  id-token: write # npm provenance (OIDC)
 
 jobs:
   publish:
-    name: Publish to npm
+    name: Publish
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
@@ -33,12 +42,18 @@ jobs:
           npm run lint
           npm test
 
-      # A release tagged vX.Y.Z must match the version in package.json.
+      # Target release tag: the triggering release, or the manual `tag` input.
+      - name: Resolve release tag
+        id: rel
+        if: github.event_name == 'release' || inputs.tag != ''
+        run: echo "tag=${{ github.event.release.tag_name || inputs.tag }}" >> "$GITHUB_OUTPUT"
+
+      # A tag vX.Y.Z must match the version in package.json.
       - name: Ensure release tag matches package version
-        if: github.event_name == 'release'
+        if: steps.rel.outputs.tag != ''
         run: |
           expected="v$(node -p "require('./package.json').version")"
-          actual="${GITHUB_REF_NAME}"
+          actual="${{ steps.rel.outputs.tag }}"
           if [ "$expected" != "$actual" ]; then
             echo "::error::Release tag '$actual' does not match package version '$expected'."
             exit 1
@@ -47,7 +62,39 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Package tarball
+        run: npm pack
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: qoder-transfer-${{ github.ref_name }}
+          path: |
+            qoder-transfer-*.tgz
+            dist/index.js
+          if-no-files-found: error
+
+      # Attach the same artifacts to the GitHub Release. Created with GITHUB_TOKEN,
+      # so it will not re-trigger the release event.
+      - name: Attach artifacts to the GitHub Release
+        if: steps.rel.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ steps.rel.outputs.tag }}"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "$tag" --generate-notes
+          fi
+          gh release upload "$tag" qoder-transfer-*.tgz dist/index.js --clobber
+
       - name: Publish to npm
-        run: npm publish --provenance
+        if: github.event_name == 'release' || inputs.publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if npm view "qoder-transfer@${version}" version >/dev/null 2>&1; then
+            echo "qoder-transfer@${version} is already on npm; skipping publish."
+          else
+            npm publish --provenance
+          fi

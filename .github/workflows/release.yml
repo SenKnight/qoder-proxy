@@ -71,7 +71,7 @@ jobs:
         with:
           name: qoder-transfer-${{ github.ref_name }}
           path: |
-            qoder-transfer-*.tgz
+            senknight-qoder-transfer-*.tgz
             dist/index.js
           if-no-files-found: error
 
@@ -85,16 +85,17 @@ jobs:
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" --title "$tag" --generate-notes
           fi
-          gh release upload "$tag" qoder-transfer-*.tgz dist/index.js --clobber
+          gh release upload "$tag" senknight-qoder-transfer-*.tgz dist/index.js --clobber
 
       - name: Publish to npm
         if: github.event_name == 'push' || inputs.publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          name="$(node -p "require('./package.json').name")"
           version="$(node -p "require('./package.json').version")"
-          if npm view "qoder-transfer@${version}" version >/dev/null 2>&1; then
-            echo "qoder-transfer@${version} is already on npm; skipping publish."
+          if npm view "${name}@${version}" version >/dev/null 2>&1; then
+            echo "${name}@${version} is already on npm; skipping publish."
           else
             npm publish --provenance
           fi

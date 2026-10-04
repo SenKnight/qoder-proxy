@@ -25,13 +25,13 @@
 全局安装：
 
 ```bash
-npm install -g qoder-transfer
+npm install -g @senknight/qoder-transfer
 ```
 
 或用 npx 直接运行：
 
 ```bash
-npx qoder-transfer --help
+npx @senknight/qoder-transfer --help
 ```
 
 从源码构建：

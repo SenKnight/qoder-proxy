@@ -1,6 +1,6 @@
 {
   "name": "qoder-transfer",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Standalone OpenAI-compatible relay that exposes Qoder large models to AI agents",
   "type": "module",
   "license": "MIT",

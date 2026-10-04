@@ -55,22 +55,19 @@ export interface ModelDef {
 }
 
 /**
- * Friendly alias → upstream wire key. Sourced from pi-provider-qoder README
- * appendix B plus compatibility aliases. Wire keys resolve to themselves.
+ * Human-friendly label derived from an upstream `display_name`, mirroring
+ * pi-provider-qoder's `prettifyQoderCNModelName`. It becomes the advertised
+ * model id (once the region suffix is appended); the upstream wire key stays
+ * internal and is resolved from it on request.
  */
-export const MODEL_ALIASES: Record<string, string> = {
-  "qwen3.7-max": "qmodel_latest",
-  "qwen3.7-plus": "qmodel",
-  "qwen3.6-plus": "qmodel",
-  "qwen3.6-flash": "q36fmodel",
-  "deepseek-v4-pro": "dmodel",
-  "deepseek-v4-flash": "dfmodel",
-  "glm-5.2": "gm51model",
-  "glm-5.1": "gm51model",
-  "kimi-k2.6": "kmodel",
-  "minimax-m2.7": "mmodel",
-  "minimax-m3": "mmodel",
-};
+export function prettifyModelName(name: string): string {
+  return (name || "")
+    .replace(/Qwen(\d)/g, "Qwen $1")
+    .replace(/Qwen([\d.]+)-/g, "Qwen $1 ")
+    .replace(/DeepSeek\s*V(\d)-/g, "DeepSeek V$1 ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 /**
  * Region-specific suffix appended to every advertised model id so a client that
@@ -203,6 +200,66 @@ const STATIC_FALLBACK: ModelDef[] = [
     wireKey: "gm51model",
   },
   {
+    id: "gmodel",
+    name: "GLM 5.3",
+    contextWindow: 180_000,
+    maxTokens: 32_768,
+    vision: true,
+    reasoning: true,
+    supportsEffort: true,
+    wireKey: "gmodel",
+  },
+  {
+    id: "gfmodel",
+    name: "GLM 5.3 Flash",
+    contextWindow: 1_000_000,
+    maxTokens: 32_768,
+    vision: true,
+    reasoning: true,
+    supportsEffort: true,
+    wireKey: "gfmodel",
+  },
+  {
+    id: "qmodel_38max",
+    name: "Qwen3.8 Max",
+    contextWindow: 1_000_000,
+    maxTokens: 32_768,
+    vision: true,
+    reasoning: true,
+    supportsEffort: true,
+    wireKey: "qmodel_38max",
+  },
+  {
+    id: "qfmodel",
+    name: "Qwen3.8 Flash",
+    contextWindow: 1_000_000,
+    maxTokens: 32_768,
+    vision: true,
+    reasoning: true,
+    supportsEffort: true,
+    wireKey: "qfmodel",
+  },
+  {
+    id: "q37fmodel",
+    name: "Qwen3.7 Flash",
+    contextWindow: 1_000_000,
+    maxTokens: 32_768,
+    vision: true,
+    reasoning: true,
+    supportsEffort: false,
+    wireKey: "q37fmodel",
+  },
+  {
+    id: "kmodel_latest",
+    name: "Kimi K3",
+    contextWindow: 1_000_000,
+    maxTokens: 32_768,
+    vision: true,
+    reasoning: true,
+    supportsEffort: true,
+    wireKey: "kmodel_latest",
+  },
+  {
     id: "kmodel",
     name: "Kimi K2.6",
     contextWindow: 256_000,
@@ -225,24 +282,37 @@ const STATIC_FALLBACK: ModelDef[] = [
 ];
 
 /**
- * Build the advertised catalog: friendly aliases plus the `auto` default, each
- * carrying the region suffix. Raw upstream wire keys are intentionally hidden
- * from `/v1/models`; a caller that already knows a wire key (with or without
- * the suffix) can still use it directly.
+ * Build the advertised catalog from the upstream defs: one entry per enabled
+ * model, its id/name derived from the upstream `display_name` (prettified) plus
+ * the region suffix. Raw upstream wire keys are not advertised, but a caller
+ * that already knows one can still use it directly. Returns the advertised list
+ * alongside a reverse map (advertised label / wire key → wire key) used to
+ * resolve inbound requests.
  */
-function toAdvertised(defs: ModelDef[], mode: QoderMode): ModelDef[] {
+function buildAdvertised(defs: ModelDef[], mode: QoderMode): { models: ModelDef[]; map: Map<string, string> } {
   const byWireKey = new Map<string, ModelDef>();
   for (const def of defs) if (!byWireKey.has(def.wireKey)) byWireKey.set(def.wireKey, def);
 
-  const advertised: ModelDef[] = [];
-  const autoDef = byWireKey.get("auto") ?? (STATIC_FALLBACK[0] as ModelDef);
-  advertised.push({ ...autoDef, id: withModelSuffix("auto", mode) });
-  for (const [alias, target] of Object.entries(MODEL_ALIASES)) {
-    const def = byWireKey.get(target);
-    if (!def) continue;
-    advertised.push({ ...def, id: withModelSuffix(alias, mode), name: `${def.name} (${alias})` });
+  const models: ModelDef[] = [];
+  const map = new Map<string, string>();
+  const used = new Set<string>();
+
+  const add = (def: ModelDef, base: string): void => {
+    let label = base || def.wireKey;
+    if (used.has(label)) label = `${label} (${def.wireKey})`;
+    used.add(label);
+    map.set(label, def.wireKey);
+    map.set(def.wireKey, def.wireKey);
+    const id = withModelSuffix(label, mode);
+    models.push({ ...def, id, name: id });
+  };
+
+  add((byWireKey.get("auto") ?? STATIC_FALLBACK[0]) as ModelDef, "Auto");
+  for (const def of defs) {
+    if (def.wireKey === "auto") continue;
+    add(def, prettifyModelName(def.name || def.wireKey));
   }
-  return advertised;
+  return { models, map };
 }
 
 function contextWindowOf(entry: QoderModelEntry): number {
@@ -264,6 +334,7 @@ export type SessionProvider = () => Promise<QoderBearerSession>;
 export class QoderModelCatalog {
   private entries = new Map<string, QoderModelEntry>();
   private models: ModelDef[] = [];
+  private idToWireKey = new Map<string, string>();
   private updatedAt = 0;
   private pending: Promise<void> | undefined;
 
@@ -272,7 +343,11 @@ export class QoderModelCatalog {
     private readonly getSession: SessionProvider,
     private readonly debug: boolean,
     private readonly ttlMs: number,
-  ) {}
+  ) {
+    // Advertised ids resolve even before the live catalog loads, by seeding the
+    // reverse map from the static fallback.
+    this.idToWireKey = buildAdvertised(STATIC_FALLBACK, route.mode).map;
+  }
 
   /** Refresh the catalog when the cache is missing or older than the TTL. */
   async ensureFresh(): Promise<void> {
@@ -328,25 +403,25 @@ export class QoderModelCatalog {
       });
     }
 
+    const advertised = buildAdvertised(defs, this.route.mode);
     this.entries = entries;
-    this.models = toAdvertised(defs, this.route.mode);
+    this.models = advertised.models;
+    this.idToWireKey = advertised.map;
     this.updatedAt = Date.now();
     logger.info("model catalog refreshed", { advertised: this.models.length, upstream: entries.size });
   }
 
-  /** Advertised models: friendly aliases plus `auto` (raw wire keys omitted). */
+  /** Advertised models: display-name ids plus `auto` (raw wire keys omitted). */
   list(): ModelDef[] {
-    return this.models.length > 0 ? this.models : toAdvertised(STATIC_FALLBACK, this.route.mode);
+    return this.models.length > 0 ? this.models : buildAdvertised(STATIC_FALLBACK, this.route.mode).models;
   }
 
-  /** Resolve an advertised id / friendly alias to the upstream wire key. */
+  /** Resolve an advertised id / display label / wire key to the upstream wire key. */
   resolveWireKey(modelId: string): string {
     const id = stripModelSuffix(modelId ?? "");
     if (!id) return "auto";
     if (this.entries.has(id)) return id;
-    const alias = MODEL_ALIASES[id];
-    if (alias) return alias;
-    return id;
+    return this.idToWireKey.get(id) ?? id;
   }
 
   /** Catalog entry (with thinking_config etc.) for a requested model id. */

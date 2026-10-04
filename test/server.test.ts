@@ -142,14 +142,14 @@ describe("relay HTTP surface", () => {
     expect(res.status).toBe(401);
   });
 
-  it("advertises suffixed aliases and auto, hiding raw wire keys", async () => {
+  it("advertises prettified display-name ids and auto, hiding raw wire keys", async () => {
     const res = await fetch(`${relayBase}/v1/models`, { headers: { Authorization: "Bearer secret-key" } });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { object: string; data: Array<{ id: string }> };
     expect(body.object).toBe("list");
     const ids = body.data.map((m) => m.id);
-    expect(ids).toContain(`auto${CN_SUFFIX}`);
-    expect(ids).toContain(`qwen3.7-plus${CN_SUFFIX}`);
+    expect(ids).toContain(`Auto${CN_SUFFIX}`);
+    expect(ids).toContain(`Qwen 3.7 Plus${CN_SUFFIX}`);
     expect(ids).not.toContain(`qmodel${CN_SUFFIX}`);
     expect(ids).not.toContain(`disabled${CN_SUFFIX}`);
   });
@@ -198,7 +198,7 @@ describe("relay HTTP surface", () => {
       method: "POST",
       headers: { Authorization: "Bearer secret-key", "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: `qwen3.7-plus${CN_SUFFIX}`,
+        model: `Qwen 3.7 Plus${CN_SUFFIX}`,
         messages: [{ role: "user", content: "weather in paris" }],
         tools: [{ type: "function", function: { name: "get_weather" } }],
       }),

@@ -194,19 +194,28 @@ curl -N http://127.0.0.1:8787/v1/chat/completions \
 
 ## 模型
 
-`GET /v1/models` 只宣传**友好别名**（外加默认的 `auto`），**不暴露上游 wire key**；每个 id 都会追加**区域后缀**，便于客户端在多个 provider 之间区分——CN 为 ` · Qoder-CN`，Global 为 ` · Qoder`（默认模型 `auto` 也带后缀）。调用 `POST /v1/chat/completions` 时，`model` 既可写带后缀的 id（如 `qwen3.7-plus · Qoder-CN`），也可写原始别名或已知 wire key，服务端会自动解析回真实 key。
+`GET /v1/models` **动态镜像上游模型目录**（`/algo/api/v2/model/list`）：上游每个启用模型都会出现，其 `id` 由上游 `display_name` 美化后（如 `Qwen3.7-Plus` → `Qwen 3.7-Plus`）再追加**区域后缀**——CN 为 ` · Qoder-CN`，Global 为 ` · Qoder`（默认模型 `Auto` 也带后缀）。命名规则与 pi-provider-qoder 的 `getQoderCNFriendlyModelInfo`（`prettifyQoderCNModelName`）保持一致。
 
-| 别名（`/v1/models` 中的 id = `别名` + 区域后缀） | 上游 wire key |
+上游原始 wire key 不对外暴露。调用 `POST /v1/chat/completions` 时，`model` 可写带后缀的 id（如 `Qwen 3.7-Plus · Qoder-CN`）、不含后缀的美化名，或已知的上游 wire key，服务端都会自动解析回真实 key。
+
+> 下表为 CN 环境示例；id ↔ wire key 的对应随上游目录实时变化。
+
+| `/v1/models` 中的 id（= 美化名 + 区域后缀） | 上游 wire key |
 | --- | --- |
-| `auto` | `auto`（默认模型） |
-| `qwen3.7-max` | `qmodel_latest` |
-| `qwen3.7-plus` / `qwen3.6-plus` | `qmodel` |
-| `qwen3.6-flash` | `q36fmodel`（该 key 存在时） |
-| `deepseek-v4-pro` | `dmodel` |
-| `deepseek-v4-flash` | `dfmodel` |
-| `glm-5.2` / `glm-5.1` | `gm51model` |
-| `kimi-k2.6` | `kmodel` |
-| `minimax-m2.7` / `minimax-m3` | `mmodel` |
+| `Auto` | `auto`（默认模型） |
+| `Qwen 3.8-Max` | `qmodel_38max` |
+| `Qwen 3.8-Flash` | `qfmodel` |
+| `Qwen 3.7-Max` | `qmodel_latest` |
+| `Qwen 3.7-Plus` | `qmodel` |
+| `Qwen 3.7-Flash` | `q37fmodel` |
+| `DeepSeek-V4-Pro` | `dmodel` |
+| `DeepSeek-Flash` | `dfmodel` |
+| `GLM-5.3` | `gmodel` |
+| `GLM-5.3-Flash` | `gfmodel` |
+| `GLM-5.2` | `gm51model` |
+| `Kimi-K3` | `kmodel_latest` |
+| `Kimi-K2.8-Preview` | `kmodel` |
+| `MiniMax-M2.7` | `mmodel` |
 
 
 ---

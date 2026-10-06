@@ -22,7 +22,7 @@ try {
     // Keep node built-ins external; the relay has no runtime npm dependencies.
     packages: "external",
     // Bake the package version into the bundle for `--version`.
-    define: { __QODER_TRANSFER_VERSION__: JSON.stringify(pkg.version) },
+    define: { __QODER_PROXY_VERSION__: JSON.stringify(pkg.version) },
     banner: {
       js: "#!/usr/bin/env node",
     },

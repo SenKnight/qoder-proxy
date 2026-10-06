@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// One-command release for qoder-transfer.
+// One-command release for qoder-proxy.
 //
 // Runs the local checks, bumps the version, then pushes the commit and the
 // `vX.Y.Z` tag. Pushing the tag triggers the Release workflow, which builds the

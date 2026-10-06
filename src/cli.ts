@@ -18,10 +18,10 @@ export interface ParsedArgs {
 
 const LOG_LEVELS = new Set<LogLevel>(["debug", "info", "warn", "error"]);
 
-export const USAGE = `qoder-transfer — 以 OpenAI 兼容 API 暴露 Qoder 大模型
+export const USAGE = `qoder-proxy — 以 OpenAI 兼容 API 暴露 Qoder 大模型
 
 用法：
-  qoder-transfer [选项]
+  qoder-proxy [选项]
 
 选项：
   --pat <token>             Qoder 个人访问令牌（pt-...）                 [env: QODER_PAT]

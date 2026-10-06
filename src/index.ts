@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   ctx.catalog.ensureFresh().catch(() => {});
 
   server.listen(config.port, config.host, () => {
-    logger.info("qoder-transfer listening", {
+    logger.info("qoder-proxy listening", {
       version: VERSION,
       url: `http://${config.host}:${config.port}`,
       mode: config.mode,

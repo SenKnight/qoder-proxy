@@ -69,9 +69,9 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
         with:
-          name: qoder-transfer-${{ github.ref_name }}
+          name: qoder-proxy-${{ github.ref_name }}
           path: |
-            senknight-qoder-transfer-*.tgz
+            senknight-qoder-proxy-*.tgz
             dist/index.js
           if-no-files-found: error
 
@@ -85,7 +85,7 @@ jobs:
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" --title "$tag" --generate-notes
           fi
-          gh release upload "$tag" senknight-qoder-transfer-*.tgz dist/index.js --clobber
+          gh release upload "$tag" senknight-qoder-proxy-*.tgz dist/index.js --clobber
 
       - name: Publish to npm
         if: github.event_name == 'push' || inputs.publish

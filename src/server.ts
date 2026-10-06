@@ -355,7 +355,7 @@ async function route(ctx: RelayContext, req: IncomingMessage, res: ServerRespons
   if (req.method === "GET" && (path === "/" || path === "/health")) {
     sendJson(res, 200, {
       status: "ok",
-      service: "qoder-transfer",
+      service: "qoder-proxy",
       version: VERSION,
       mode: ctx.config.mode,
       auth_required: Boolean(ctx.config.clientApiKey),

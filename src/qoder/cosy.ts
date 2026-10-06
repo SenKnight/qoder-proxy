@@ -27,7 +27,7 @@ const QoderLoginVersion = "v2";
 const QoderMachineOS = "x86_64_windows";
 const QoderMachineTypeMagic = "5";
 
-export const QoderUserAgent = "qoder-transfer";
+export const QoderUserAgent = "qoder-proxy";
 
 export interface QoderRoute {
   mode: QoderMode;
@@ -149,7 +149,7 @@ export function getMachineId(): string {
 
   const newId = crypto.randomUUID();
   try {
-    const savePath = join(homedir(), ".qoder-transfer", "machine-id");
+    const savePath = join(homedir(), ".qoder-proxy", "machine-id");
     mkdirSync(dirname(savePath), { recursive: true });
     writeFileSync(savePath, newId, "utf8");
   } catch {}

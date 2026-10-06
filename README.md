@@ -1,4 +1,4 @@
-# qoder-transfer
+# qoder-proxy
 
 一个**独立的中转站服务**，把 [Qoder](https://qoder.com) 的大模型能力以 **OpenAI 兼容 API** 的形式提供给任何 AI agent / 客户端。
 灵感源自 [minglu6/pi-provider-qoder](https://github.com/minglu6/pi-provider-qoder)
@@ -25,13 +25,13 @@
 全局安装：
 
 ```bash
-npm install -g @senknight/qoder-transfer
+npm install -g @senknight/qoder-proxy
 ```
 
 或用 npx 直接运行：
 
 ```bash
-npx @senknight/qoder-transfer --help
+npx @senknight/qoder-proxy --help
 ```
 
 从源码构建：
@@ -56,7 +56,7 @@ export QODER_PAT=pt-xxxxxxxx
 命令行参数：
 
 ```bash
-qoder-transfer --pat pt-xxxxxxxx --port 8787
+qoder-proxy --pat pt-xxxxxxxx --port 8787
 ```
 
 最少只需一个上游 PAT（`--pat` 或 `QODER_PAT`）。PAT 是 `pt-` 开头的字符串，需在 **Qoder 控制台的「账号集成」（Integrations）页面**创建，**仅在生成时显示一次，请立即保存**。请按你的部署形态到对应地址获取：
@@ -75,7 +75,7 @@ qoder-transfer --pat pt-xxxxxxxx --port 8787
 
 ```bash
 # 全局安装后
-qoder-transfer --pat pt-xxxxxxxx
+qoder-proxy --pat pt-xxxxxxxx
 
 # 本地
 npm start
@@ -185,7 +185,7 @@ curl -N http://127.0.0.1:8787/v1/chat/completions \
 无需鉴权，返回服务状态：
 
 ```json
-{"status":"ok","service":"qoder-transfer","version":"x.y.z","mode":"cn","auth_required":false,"default_model":"auto"}
+{"status":"ok","service":"qoder-proxy","version":"x.y.z","mode":"cn","auth_required":false,"default_model":"auto"}
 ```
 
 `version` 为当前服务版本（启动日志的同名字段也会打印）；`auth_required` 为 `false` 表示未启用客户端鉴权。
@@ -267,8 +267,8 @@ npm run build   # 打包到 dist/index.js
 ## Docker
 
 ```bash
-docker build -t qoder-transfer .
-docker run --rm -p 8787:8787 -e QODER_PAT=pt-xxx -e RELAY_API_KEY=secret qoder-transfer
+docker build -t qoder-proxy .
+docker run --rm -p 8787:8787 -e QODER_PAT=pt-xxx -e RELAY_API_KEY=secret qoder-proxy
 ```
 
 ---
@@ -303,8 +303,8 @@ git push origin main --follow-tags
 
 每次运行 `Release` 会将构建产物同时：
 
-- 作为 **workflow artifact** 上传（名 `qoder-transfer-<ref>`）；
-- **挂载到对应的 GitHub Release**（不存在时自动创建），包括 `qoder-transfer-<version>.tgz`（npm 包）与 `dist/index.js`（独立 bundle）。
+- 作为 **workflow artifact** 上传（名 `qoder-proxy-<ref>`）；
+- **挂载到对应的 GitHub Release**（不存在时自动创建），包括 `senknight-qoder-proxy-<version>.tgz`（npm 包）与 `dist/index.js`（独立 bundle）。
 
 若版本已在 npm 上存在，`npm publish` 步骤会自动跳过（幂等）。
 

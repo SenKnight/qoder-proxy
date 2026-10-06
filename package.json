@@ -1,22 +1,22 @@
 {
-  "name": "@senknight/qoder-transfer",
+  "name": "@senknight/qoder-proxy",
   "version": "0.1.8",
   "description": "Standalone OpenAI-compatible relay that exposes Qoder large models to AI agents",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SenKnight/qoder-transfer.git"
+    "url": "git+https://github.com/SenKnight/qoder-proxy.git"
   },
-  "homepage": "https://github.com/SenKnight/qoder-transfer#readme",
+  "homepage": "https://github.com/SenKnight/qoder-proxy#readme",
   "bugs": {
-    "url": "https://github.com/SenKnight/qoder-transfer/issues"
+    "url": "https://github.com/SenKnight/qoder-proxy/issues"
   },
   "publishConfig": {
     "access": "public"
   },
   "bin": {
-    "qoder-transfer": "dist/index.js"
+    "qoder-proxy": "dist/index.js"
   },
   "files": [
     "dist",

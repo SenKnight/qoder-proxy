@@ -50,7 +50,7 @@ describe("qoderEncodeBody", () => {
   });
 
   it("preserves the base64 length", () => {
-    const input = "qoder transfer relay";
+    const input = "qoder proxy relay";
     const encoded = qoderEncodeBody(input);
     expect(encoded.length).toBe(Buffer.from(input).toString("base64").length);
   });

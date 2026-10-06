@@ -10,6 +10,7 @@ import {
   logCosyResponse,
   type QoderRoute,
 } from "./cosy.js";
+import { DsmlStreamFilter } from "./dsml.js";
 import { qoderEncodeBody } from "./encoding.js";
 import type { QoderModelCatalog, QoderModelEntry } from "./models.js";
 import { lastUserText, type QoderMessage, transformMessages, transformTools } from "./transform.js";
@@ -60,11 +61,12 @@ interface QoderResponseDelta {
 
 interface QoderSseEnvelope {
   statusCodeValue?: number;
-  body?: string;
+  // Usually a JSON string, but some gateway revisions inline the chunk object.
+  body?: string | QoderSseBody | null;
 }
 
 interface QoderSseBody {
-  choices?: Array<{ delta?: QoderResponseDelta }>;
+  choices?: Array<{ delta?: QoderResponseDelta; finish_reason?: string | null }>;
 }
 
 function combineSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal | undefined {
@@ -188,6 +190,20 @@ function buildRequestBody(
   };
 }
 
+function mapFinishReason(raw: string | null | undefined): QoderFinishReason | undefined {
+  switch (raw) {
+    case "length":
+      return "length";
+    case "tool_calls":
+    case "function_call":
+      return "tool_calls";
+    case "stop":
+      return "stop";
+    default:
+      return undefined;
+  }
+}
+
 async function* parseStream(response: Response, modelKey: string, debug: boolean): AsyncGenerator<QoderEvent> {
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Qoder returned no response body");
@@ -196,78 +212,134 @@ async function* parseStream(response: Response, modelKey: string, debug: boolean
 
   const toolCalls = new Map<number, ToolCallState>();
   let producedContent = false;
+  let upstreamFinish: QoderFinishReason | undefined;
+  // Some DeepSeek checkpoints emit tool calls as DSML text instead of OpenAI
+  // `tool_calls` deltas; these filters convert such markup and keep it out of
+  // the visible reasoning/text. Synthetic indices avoid clashing with native
+  // tool-call indices (which start at 0).
+  const reasoningFilter = new DsmlStreamFilter();
+  const contentFilter = new DsmlStreamFilter();
+  let dsmlToolIndex = 10_000;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+  try {
+    // `[DONE]` is terminal: leave the read loop the moment it arrives so a
+    // gateway that keeps the connection open cannot stall us until the request
+    // timeout (which a client perceives as the turn never finishing).
+    outer: while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
 
-    let lineEnd = buffer.indexOf("\n");
-    while (lineEnd !== -1) {
-      const line = buffer.slice(0, lineEnd).trim();
-      buffer = buffer.slice(lineEnd + 1);
-      lineEnd = buffer.indexOf("\n");
+      let lineEnd = buffer.indexOf("\n");
+      while (lineEnd !== -1) {
+        const line = buffer.slice(0, lineEnd).trim();
+        buffer = buffer.slice(lineEnd + 1);
+        lineEnd = buffer.indexOf("\n");
 
-      if (!line.startsWith("data:")) continue;
-      const dataStr = line.slice(5).trim();
-      if (dataStr === "[DONE]") continue;
+        if (!line.startsWith("data:")) continue;
+        const dataStr = line.slice(5).trim();
+        if (dataStr === "[DONE]") break outer;
 
-      let envelope: QoderSseEnvelope;
-      try {
-        envelope = JSON.parse(dataStr) as QoderSseEnvelope;
-      } catch {
-        continue;
-      }
-      if (envelope.statusCodeValue && envelope.statusCodeValue !== 200) {
-        throw new Error(`Upstream status ${envelope.statusCodeValue}: ${envelope.body ?? ""}`);
-      }
-      const innerStr = envelope.body;
-      if (!innerStr || innerStr === "[DONE]") continue;
+        let envelope: QoderSseEnvelope | null;
+        try {
+          envelope = JSON.parse(dataStr) as QoderSseEnvelope | null;
+        } catch {
+          if (debug) logger.debug("skipped unparseable SSE frame", { frame: dataStr.slice(0, 200) });
+          continue;
+        }
+        if (!envelope) continue;
+        if (envelope.statusCodeValue && envelope.statusCodeValue !== 200) {
+          const detail = typeof envelope.body === "string" ? envelope.body : "";
+          throw new Error(`Upstream status ${envelope.statusCodeValue}: ${detail}`);
+        }
 
-      let inner: QoderSseBody;
-      try {
-        inner = JSON.parse(String(innerStr)) as QoderSseBody;
-      } catch {
-        continue;
-      }
+        const rawBody = envelope.body;
+        if (rawBody === undefined || rawBody === null) continue;
+        if (rawBody === "[DONE]") break outer;
 
-      const delta = inner.choices?.[0]?.delta;
-      if (!delta) continue;
+        let inner: QoderSseBody;
+        try {
+          // Accept an already-decoded body object as well as a JSON string, so a
+          // gateway revision that inlines the chunk never silently drops it.
+          inner = typeof rawBody === "string" ? (JSON.parse(rawBody) as QoderSseBody) : rawBody;
+        } catch {
+          if (debug) logger.debug("skipped unparseable SSE body", { body: String(rawBody).slice(0, 200) });
+          continue;
+        }
 
-      if (delta.reasoning_content) {
-        producedContent = true;
-        yield { type: "reasoning", text: delta.reasoning_content };
-      }
-      if (delta.content) {
-        producedContent = true;
-        yield { type: "text", text: delta.content };
-      }
-      if (Array.isArray(delta.tool_calls)) {
-        for (const tc of delta.tool_calls) {
-          const index = tc.index ?? 0;
-          let state = toolCalls.get(index);
-          if (!state) {
-            state = { id: tc.id || "", name: tc.function?.name || "" };
-            toolCalls.set(index, state);
+        const choice = inner.choices?.[0];
+        if (!choice) continue;
+        const mappedFinish = mapFinishReason(choice.finish_reason);
+        if (mappedFinish) upstreamFinish = mappedFinish;
+
+        const delta = choice.delta;
+        if (!delta) continue;
+
+        if (delta.reasoning_content) {
+          const visible = reasoningFilter.push(delta.reasoning_content);
+          if (visible) {
+            producedContent = true;
+            yield { type: "reasoning", text: visible };
           }
-          if (tc.id) state.id = tc.id;
-          if (tc.function?.name) state.name = tc.function.name;
+        }
+        if (delta.content) {
+          const visible = contentFilter.push(delta.content);
+          if (visible) {
+            producedContent = true;
+            yield { type: "text", text: visible };
+          }
+        }
+        for (const call of [...reasoningFilter.takeCalls(), ...contentFilter.takeCalls()]) {
           producedContent = true;
-          yield {
-            type: "tool_call",
-            index,
-            ...(state.id ? { id: state.id } : {}),
-            ...(tc.function?.name ? { name: tc.function.name } : {}),
-            ...(tc.function?.arguments ? { argumentsDelta: tc.function.arguments } : {}),
-          };
+          yield { type: "tool_call", index: dsmlToolIndex++, name: call.name, argumentsDelta: call.arguments };
+        }
+        if (Array.isArray(delta.tool_calls)) {
+          for (const tc of delta.tool_calls) {
+            const index = tc.index ?? 0;
+            let state = toolCalls.get(index);
+            if (!state) {
+              state = { id: tc.id || "", name: tc.function?.name || "" };
+              toolCalls.set(index, state);
+            }
+            if (tc.id) state.id = tc.id;
+            if (tc.function?.name) state.name = tc.function.name;
+            producedContent = true;
+            yield {
+              type: "tool_call",
+              index,
+              ...(state.id ? { id: state.id } : {}),
+              ...(tc.function?.name ? { name: tc.function.name } : {}),
+              ...(tc.function?.arguments ? { argumentsDelta: tc.function.arguments } : {}),
+            };
+          }
         }
       }
     }
+  } finally {
+    // Release the upstream connection even when we stopped early on `[DONE]`.
+    reader.cancel().catch(() => {});
   }
 
-  if (debug) logger.debug("stream complete", { model: modelKey, toolCalls: toolCalls.size });
+  const tailReasoning = reasoningFilter.flush();
+  if (tailReasoning) {
+    producedContent = true;
+    yield { type: "reasoning", text: tailReasoning };
+  }
+  const tailContent = contentFilter.flush();
+  if (tailContent) {
+    producedContent = true;
+    yield { type: "text", text: tailContent };
+  }
+  for (const call of [...reasoningFilter.takeCalls(), ...contentFilter.takeCalls()]) {
+    producedContent = true;
+    yield { type: "tool_call", index: dsmlToolIndex++, name: call.name, argumentsDelta: call.arguments };
+  }
+
+  if (debug) logger.debug("stream complete", { model: modelKey, toolCalls: toolCalls.size, finish: upstreamFinish });
   if (!producedContent) throw new Error("Qoder upstream completed without assistant content");
-  yield { type: "finish", reason: toolCalls.size > 0 ? "tool_calls" : "stop" };
+  const reason: QoderFinishReason =
+    toolCalls.size > 0 || dsmlToolIndex > 10_000 ? "tool_calls" : (upstreamFinish ?? "stop");
+  yield { type: "finish", reason };
 }
 
 async function openChatStream(deps: ChatDeps, params: ChatParams): Promise<Response> {

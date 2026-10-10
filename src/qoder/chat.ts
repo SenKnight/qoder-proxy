@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { logger } from "../logger.js";
-import type { ChatMessage, ToolDef } from "../openai/types.js";
+import type { ChatMessage, ToolDef, Usage } from "../openai/types.js";
 import type { QoderAuth } from "./auth.js";
 import {
   buildAuthHeaders,
@@ -13,7 +13,14 @@ import {
 import { DsmlStreamFilter } from "./dsml.js";
 import { qoderEncodeBody } from "./encoding.js";
 import type { QoderModelCatalog, QoderModelEntry } from "./models.js";
-import { lastUserText, type QoderMessage, transformMessages, transformTools } from "./transform.js";
+import { estimatePromptTokens, estimateTokens } from "./tokens.js";
+import {
+  lastUserText,
+  type QoderMessage,
+  type TransformedConversation,
+  transformMessages,
+  transformTools,
+} from "./transform.js";
 
 export interface ChatDeps {
   route: QoderRoute;
@@ -40,7 +47,7 @@ export type QoderEvent =
   | { type: "text"; text: string }
   | { type: "reasoning"; text: string }
   | { type: "tool_call"; index: number; id?: string; name?: string; argumentsDelta?: string }
-  | { type: "finish"; reason: QoderFinishReason };
+  | { type: "finish"; reason: QoderFinishReason; usage: Usage };
 
 interface ToolCallState {
   id: string;
@@ -67,6 +74,13 @@ interface QoderSseEnvelope {
 
 interface QoderSseBody {
   choices?: Array<{ delta?: QoderResponseDelta; finish_reason?: string | null }>;
+  // Some gateway revisions already report usage; prefer it when present.
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    completion_tokens_details?: Usage["completion_tokens_details"];
+  };
 }
 
 function combineSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal | undefined {
@@ -204,7 +218,12 @@ function mapFinishReason(raw: string | null | undefined): QoderFinishReason | un
   }
 }
 
-async function* parseStream(response: Response, modelKey: string, debug: boolean): AsyncGenerator<QoderEvent> {
+async function* parseStream(
+  response: Response,
+  modelKey: string,
+  debug: boolean,
+  promptTokens: number,
+): AsyncGenerator<QoderEvent> {
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Qoder returned no response body");
   const decoder = new TextDecoder();
@@ -213,6 +232,12 @@ async function* parseStream(response: Response, modelKey: string, debug: boolean
   const toolCalls = new Map<number, ToolCallState>();
   let producedContent = false;
   let upstreamFinish: QoderFinishReason | undefined;
+  // Accumulated generated text, used to estimate usage locally when the
+  // upstream gateway does not report token counts itself.
+  let reasoningText = "";
+  let contentText = "";
+  let toolText = "";
+  let upstreamUsage: QoderSseBody["usage"] | undefined;
   // Some DeepSeek checkpoints emit tool calls as DSML text instead of OpenAI
   // `tool_calls` deltas; these filters convert such markup and keep it out of
   // the visible reasoning/text. Synthetic indices avoid clashing with native
@@ -268,7 +293,11 @@ async function* parseStream(response: Response, modelKey: string, debug: boolean
         }
 
         const choice = inner.choices?.[0];
-        if (!choice) continue;
+        if (!choice) {
+          if (inner.usage) upstreamUsage = inner.usage;
+          continue;
+        }
+        if (inner.usage) upstreamUsage = inner.usage;
         const mappedFinish = mapFinishReason(choice.finish_reason);
         if (mappedFinish) upstreamFinish = mappedFinish;
 
@@ -278,6 +307,7 @@ async function* parseStream(response: Response, modelKey: string, debug: boolean
         if (delta.reasoning_content) {
           const visible = reasoningFilter.push(delta.reasoning_content);
           if (visible) {
+            reasoningText += visible;
             producedContent = true;
             yield { type: "reasoning", text: visible };
           }
@@ -285,12 +315,14 @@ async function* parseStream(response: Response, modelKey: string, debug: boolean
         if (delta.content) {
           const visible = contentFilter.push(delta.content);
           if (visible) {
+            contentText += visible;
             producedContent = true;
             yield { type: "text", text: visible };
           }
         }
         for (const call of [...reasoningFilter.takeCalls(), ...contentFilter.takeCalls()]) {
           producedContent = true;
+          toolText += `${call.name}${call.arguments}`;
           yield { type: "tool_call", index: dsmlToolIndex++, name: call.name, argumentsDelta: call.arguments };
         }
         if (Array.isArray(delta.tool_calls)) {
@@ -304,6 +336,7 @@ async function* parseStream(response: Response, modelKey: string, debug: boolean
             if (tc.id) state.id = tc.id;
             if (tc.function?.name) state.name = tc.function.name;
             producedContent = true;
+            toolText += `${tc.function?.name ?? ""}${tc.function?.arguments ?? ""}`;
             yield {
               type: "tool_call",
               index,
@@ -322,16 +355,19 @@ async function* parseStream(response: Response, modelKey: string, debug: boolean
 
   const tailReasoning = reasoningFilter.flush();
   if (tailReasoning) {
+    reasoningText += tailReasoning;
     producedContent = true;
     yield { type: "reasoning", text: tailReasoning };
   }
   const tailContent = contentFilter.flush();
   if (tailContent) {
+    contentText += tailContent;
     producedContent = true;
     yield { type: "text", text: tailContent };
   }
   for (const call of [...reasoningFilter.takeCalls(), ...contentFilter.takeCalls()]) {
     producedContent = true;
+    toolText += `${call.name}${call.arguments}`;
     yield { type: "tool_call", index: dsmlToolIndex++, name: call.name, argumentsDelta: call.arguments };
   }
 
@@ -339,16 +375,39 @@ async function* parseStream(response: Response, modelKey: string, debug: boolean
   if (!producedContent) throw new Error("Qoder upstream completed without assistant content");
   const reason: QoderFinishReason =
     toolCalls.size > 0 || dsmlToolIndex > 10_000 ? "tool_calls" : (upstreamFinish ?? "stop");
-  yield { type: "finish", reason };
+
+  let usage: Usage;
+  if (upstreamUsage && typeof upstreamUsage.prompt_tokens === "number") {
+    usage = {
+      prompt_tokens: upstreamUsage.prompt_tokens,
+      completion_tokens: upstreamUsage.completion_tokens ?? 0,
+      total_tokens: upstreamUsage.total_tokens ?? upstreamUsage.prompt_tokens + (upstreamUsage.completion_tokens ?? 0),
+      ...(upstreamUsage.completion_tokens_details
+        ? { completion_tokens_details: upstreamUsage.completion_tokens_details }
+        : {}),
+    };
+  } else {
+    const reasoningTokens = estimateTokens(reasoningText);
+    const completionTokens = reasoningTokens + estimateTokens(contentText + toolText);
+    usage = {
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: promptTokens + completionTokens,
+      ...(reasoningTokens > 0 ? { completion_tokens_details: { reasoning_tokens: reasoningTokens } } : {}),
+    };
+  }
+  yield { type: "finish", reason, usage };
 }
 
-async function openChatStream(deps: ChatDeps, params: ChatParams): Promise<Response> {
+async function openChatStream(
+  deps: ChatDeps,
+  params: ChatParams,
+  conversation: TransformedConversation,
+): Promise<Response> {
   const session = await deps.auth.getSession();
   const wireKey = deps.catalog.resolveWireKey(params.model);
   const catalogEntry = deps.catalog.getEntry(params.model);
   const effort = resolveEffort(catalogEntry, params.reasoningEffort);
-  const conversation = transformMessages(params.messages);
-  conversation.tools = transformTools(params.tools);
 
   const modelConfig: QoderModelEntry = {
     ...(catalogEntry ?? { is_reasoning: false, max_output_tokens: 32_768, source: "system" }),
@@ -395,13 +454,16 @@ async function openChatStream(deps: ChatDeps, params: ChatParams): Promise<Respo
  * job token that expired mid-flight does not fail the client request.
  */
 export async function* streamQoderChat(deps: ChatDeps, params: ChatParams): AsyncGenerator<QoderEvent> {
-  let response = await openChatStream(deps, params);
+  const conversation = transformMessages(params.messages);
+  conversation.tools = transformTools(params.tools);
+  const promptTokens = estimatePromptTokens(conversation);
+  let response = await openChatStream(deps, params, conversation);
 
   if (response.status === 401 || response.status === 403) {
     const errText = await response.text().catch(() => "");
     logger.warn("chat rejected, renewing credentials", { status: response.status });
     await deps.auth.forceRenew();
-    response = await openChatStream(deps, params);
+    response = await openChatStream(deps, params, conversation);
     if (response.status === 401 || response.status === 403) {
       const retryText = await response.text().catch(() => "");
       throw new Error(
@@ -423,5 +485,5 @@ export async function* streamQoderChat(deps: ChatDeps, params: ChatParams): Asyn
     );
   }
 
-  yield* parseStream(response, deps.catalog.resolveWireKey(params.model), deps.debug);
+  yield* parseStream(response, deps.catalog.resolveWireKey(params.model), deps.debug, promptTokens);
 }

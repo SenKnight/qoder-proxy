@@ -184,13 +184,41 @@ describe("relay HTTP surface", () => {
     const body = (await res.json()) as {
       object: string;
       choices: Array<{ message: { content: string; reasoning_content?: string }; finish_reason: string }>;
-      usage: unknown;
+      usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
     };
     expect(body.object).toBe("chat.completion");
     expect(body.choices[0]?.message.content).toBe("Hello, world");
     expect(body.choices[0]?.message.reasoning_content).toBe("thinking ");
     expect(body.choices[0]?.finish_reason).toBe("stop");
-    expect(body.usage).toBeDefined();
+    expect(body.usage.prompt_tokens).toBeGreaterThan(0);
+    expect(body.usage.completion_tokens).toBeGreaterThan(0);
+    expect(body.usage.total_tokens).toBe(body.usage.prompt_tokens + body.usage.completion_tokens);
+  });
+
+  it("reports usage when stream_options.include_usage is set", async () => {
+    const res = await fetch(`${relayBase}/v1/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: "Bearer secret-key", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        stream: true,
+        stream_options: { include_usage: true },
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    });
+    expect(res.status).toBe(200);
+    const text = await readAll(res);
+    const frames = text
+      .split("\n\n")
+      .filter((frame) => frame.startsWith("data: {"))
+      .map((frame) => JSON.parse(frame.slice(6)));
+    const usageFrame = frames.find((frame) => frame?.usage);
+    expect(usageFrame).toBeDefined();
+    const usage = (usageFrame as { usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } })
+      .usage;
+    expect(usage.prompt_tokens).toBeGreaterThan(0);
+    expect(usage.completion_tokens).toBeGreaterThan(0);
+    expect(usage.total_tokens).toBe(usage.prompt_tokens + usage.completion_tokens);
   });
 
   it("maps upstream tool calls through an alias model", async () => {

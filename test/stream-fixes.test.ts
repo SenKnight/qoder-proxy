@@ -94,6 +94,18 @@ beforeAll(async () => {
             } catch {}
           }, 10_000);
           res.on("close", () => clearTimeout(timer));
+        } else if (key === "usagemodel") {
+          res.write(
+            `data: ${JSON.stringify({
+              statusCodeValue: 200,
+              body: JSON.stringify({
+                choices: [{ delta: { content: "hi" }, finish_reason: "stop" }],
+                usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+              }),
+            })}\n\n`,
+          );
+          res.write("data: [DONE]\n\n");
+          res.end();
         } else {
           res.write(frameString({ content: "hi" }, "stop"));
           res.write("data: [DONE]\n\n");
@@ -161,5 +173,13 @@ describe("upstream stream hardening", () => {
     expect(Date.now() - started).toBeLessThan(5_000);
     expect(text).toContain("stalled");
     expect(text.trimEnd().endsWith("data: [DONE]")).toBe(true);
+  });
+
+  it("prefers upstream usage when the gateway reports it", async () => {
+    const res = await chat("usagemodel");
+    const body = (await res.json()) as {
+      usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+    };
+    expect(body.usage).toEqual({ prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 });
   });
 });

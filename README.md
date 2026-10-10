@@ -11,6 +11,7 @@
 ## 特性
 
 - **OpenAI 兼容**：提供 `GET /v1/models` 与 `POST /v1/chat/completions`（支持流式与非流式）。
+- **用量统计**：上游不回传用量时，网关按实际收发文本估算 `usage`（`prompt_tokens` / `completion_tokens` / `total_tokens`）；上游回传则优先透传。
 - **推理内容**：透传 `reasoning_content`，客户端可展示思考过程。
 - **工具调用**：透传 OpenAI `tools` / `tool_calls`，支持 agent 工具循环。
 - **区域与 VPC**：支持 Global、CN 公有云、以及 CN 企业 VPC（实例名 → 派生 `-gateway` / `-openapi` 主机）。
@@ -178,7 +179,7 @@ curl -N http://127.0.0.1:8787/v1/chat/completions \
   }'
 ```
 
-请求/响应遵循 OpenAI Chat Completions 结构；流式使用 `text/event-stream`，以 `data: [DONE]` 结束。推理增量在 `delta.reasoning_content`，工具调用在 `delta.tool_calls`。
+请求/响应遵循 OpenAI Chat Completions 结构；流式使用 `text/event-stream`，以 `data: [DONE]` 结束。推理增量在 `delta.reasoning_content`，工具调用在 `delta.tool_calls`。非流式响应始终携带 `usage`；流式设置 `stream_options.include_usage` 时在末尾的独立 chunk 中返回。上游网关不回传用量，`usage` 为网关按实际收发文本的本地估算（CJK 每字约 1 token、其余约每 4 字节 1 token），用于客户端计费/展示，非上游精确值。
 
 ### `GET /health`
 

@@ -12,6 +12,7 @@ import type {
   FinishReason,
   ModelInfo,
   ModelListResponse,
+  Usage,
 } from "./openai/types.js";
 import { QoderAuth } from "./qoder/auth.js";
 import { streamQoderChat } from "./qoder/chat.js";
@@ -173,6 +174,7 @@ async function collectCompletion(
   const reasoningParts: string[] = [];
   const toolCalls = new Map<number, { id: string; name: string; arguments: string }>();
   let finish: FinishReason = "stop";
+  let usage: Usage = emptyUsage();
 
   for await (const event of streamQoderChat(
     {
@@ -201,7 +203,10 @@ async function collectCompletion(
       if (event.name) state.name = event.name;
       if (event.argumentsDelta) state.arguments += event.argumentsDelta;
       toolCalls.set(event.index, state);
-    } else if (event.type === "finish") finish = event.reason;
+    } else if (event.type === "finish") {
+      finish = event.reason;
+      usage = event.usage;
+    }
   }
 
   const message: ChatCompletionMessage = {
@@ -225,7 +230,7 @@ async function collectCompletion(
     created,
     model,
     choices: [{ index: 0, message, finish_reason: finish }],
-    usage: emptyUsage(),
+    usage,
   };
 }
 
@@ -246,6 +251,7 @@ async function handleStreaming(
 
   const toolCalls = new Map<number, { id: string; name: string }>();
   let finish: FinishReason = "stop";
+  let usage: Usage | undefined;
 
   try {
     for await (const event of streamQoderChat(
@@ -290,6 +296,7 @@ async function handleStreaming(
         safeWrite(res, sseData(chunkFor(id, model, created, { tool_calls: [callDelta] }, null)));
       } else if (event.type === "finish") {
         finish = event.reason;
+        usage = event.usage;
       }
     }
   } catch (error) {
@@ -311,7 +318,7 @@ async function handleStreaming(
       created,
       model,
       choices: [],
-      usage: emptyUsage(),
+      usage: usage ?? emptyUsage(),
     };
     safeWrite(res, sseData(usageChunk));
   }

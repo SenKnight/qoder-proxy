@@ -1,6 +1,6 @@
 {
   "name": "@senknight/qoder-proxy",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Standalone OpenAI-compatible relay that exposes Qoder large models to AI agents",
   "type": "module",
   "license": "MIT",

@@ -196,7 +196,7 @@ describe("relay HTTP surface", () => {
     expect(lastChatBody.includes('"messages"')).toBe(false);
   });
 
-  it("disables upstream thinking when enable_thinking is false", async () => {
+  it("forwards enable_thinking=false as the upstream parameter toggle", async () => {
     const res = await fetch(`${relayBase}/v1/chat/completions`, {
       method: "POST",
       headers: { Authorization: "Bearer secret-key", "Content-Type": "application/json" },
@@ -211,20 +211,14 @@ describe("relay HTTP surface", () => {
     expect(res.status).toBe(200);
     await readAll(res);
     const body = JSON.parse(qoderDecodeBody(lastChatBody)) as {
-      model_config: {
-        is_reasoning: boolean;
-        thinking_config: { enabled: { is_default: boolean }; disabled: { is_default: boolean } };
-      };
-      parameters: { reasoning_effort?: string };
+      parameters: { enable_thinking?: boolean; reasoning_effort?: string };
     };
-    expect(body.model_config.is_reasoning).toBe(false);
-    expect(body.model_config.thinking_config.disabled.is_default).toBe(true);
-    expect(body.model_config.thinking_config.enabled.is_default).toBe(false);
+    expect(body.parameters.enable_thinking).toBe(false);
     // An explicit disable also suppresses any reasoning_effort hint.
     expect(body.parameters.reasoning_effort).toBeUndefined();
   });
 
-  it("enables upstream thinking when enable_thinking is true", async () => {
+  it("forwards enable_thinking=true as the upstream parameter toggle", async () => {
     const res = await fetch(`${relayBase}/v1/chat/completions`, {
       method: "POST",
       headers: { Authorization: "Bearer secret-key", "Content-Type": "application/json" },
@@ -238,17 +232,12 @@ describe("relay HTTP surface", () => {
     expect(res.status).toBe(200);
     await readAll(res);
     const body = JSON.parse(qoderDecodeBody(lastChatBody)) as {
-      model_config: {
-        is_reasoning: boolean;
-        thinking_config: { enabled: { is_default: boolean }; disabled: { is_default: boolean } };
-      };
+      parameters: { enable_thinking?: boolean };
     };
-    expect(body.model_config.is_reasoning).toBe(true);
-    expect(body.model_config.thinking_config.enabled.is_default).toBe(true);
-    expect(body.model_config.thinking_config.disabled.is_default).toBe(false);
+    expect(body.parameters.enable_thinking).toBe(true);
   });
 
-  it("drops the reasoning flag for models without a toggle when disabled", async () => {
+  it("forwards enable_thinking for models without a thinking_config too", async () => {
     const res = await fetch(`${relayBase}/v1/chat/completions`, {
       method: "POST",
       headers: { Authorization: "Bearer secret-key", "Content-Type": "application/json" },
@@ -261,9 +250,9 @@ describe("relay HTTP surface", () => {
     expect(res.status).toBe(200);
     await readAll(res);
     const body = JSON.parse(qoderDecodeBody(lastChatBody)) as {
-      model_config: { is_reasoning: boolean };
+      parameters: { enable_thinking?: boolean };
     };
-    expect(body.model_config.is_reasoning).toBe(false);
+    expect(body.parameters.enable_thinking).toBe(false);
   });
 
   it("aggregates a non-streaming completion with usage", async () => {

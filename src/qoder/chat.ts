@@ -139,28 +139,6 @@ function applyEffort(entry: QoderModelEntry | undefined, effort: string | undefi
   };
 }
 
-/**
- * Force the thinking toggle on or off in `model_config`, mirroring what the
- * upstream client sends when the user flips a model's thinking switch: both
- * `enabled` and `disabled` carry an `is_default` flag and only one may win.
- */
-function applyThinkingToggle(entry: QoderModelEntry, enabled: boolean): QoderModelEntry {
-  const thinking = entry.thinking_config;
-  if (!thinking) {
-    // No toggle config upstream: only an explicit disable can be honored.
-    return enabled ? entry : { ...entry, is_reasoning: false };
-  }
-  return {
-    ...entry,
-    is_reasoning: enabled,
-    thinking_config: {
-      ...thinking,
-      disabled: { ...thinking.disabled, is_default: !enabled },
-      enabled: { ...thinking.enabled, is_default: enabled },
-    },
-  };
-}
-
 function buildRequestBody(
   session: { userID: string },
   wireKey: string,
@@ -202,6 +180,9 @@ function buildRequestBody(
     tools: conversation.tools || [],
     parameters: {
       max_tokens: maxTokens,
+      // The gateway toggles thinking from this boolean (verified against the
+      // live endpoint); `model_config.thinking_config` is ignored for it.
+      ...(params.enableThinking !== undefined ? { enable_thinking: params.enableThinking } : {}),
       ...(effort ? { reasoning_effort: effort } : {}),
     },
     chat_context: {
@@ -431,18 +412,14 @@ async function openChatStream(
   const session = await deps.auth.getSession();
   const wireKey = deps.catalog.resolveWireKey(params.model);
   const catalogEntry = deps.catalog.getEntry(params.model);
-  // An explicit thinking toggle wins: disabling also suppresses any effort hint.
+  // An explicit disable wins: disabling also suppresses any effort hint.
   const effort = params.enableThinking === false ? undefined : resolveEffort(catalogEntry, params.reasoningEffort);
 
   const modelConfig: QoderModelEntry = {
     ...(catalogEntry ?? { is_reasoning: false, max_output_tokens: 32_768, source: "system" }),
     key: wireKey,
   };
-  let configuredConfig = modelConfig;
-  if (params.enableThinking !== undefined) {
-    configuredConfig = applyThinkingToggle(configuredConfig, params.enableThinking);
-  }
-  if (effort) configuredConfig = applyEffort(configuredConfig, effort) ?? configuredConfig;
+  const configuredConfig = effort ? (applyEffort(modelConfig, effort) ?? modelConfig) : modelConfig;
 
   const reqBody = buildRequestBody(session, wireKey, configuredConfig, conversation, params, effort);
   const bodyBytes = Buffer.from(JSON.stringify(reqBody), "utf8");

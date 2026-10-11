@@ -47,6 +47,8 @@ export interface ChatCompletionRequest {
   temperature?: number;
   top_p?: number;
   reasoning_effort?: string;
+  /** Force thinking on/off for this request, overriding the model default. */
+  enable_thinking?: boolean;
   tools?: ToolDef[];
   tool_choice?: unknown;
   stop?: string | string[] | null;

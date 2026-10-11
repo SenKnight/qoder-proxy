@@ -192,6 +192,7 @@ async function collectCompletion(
         ? { maxTokens: req.max_tokens || req.max_completion_tokens }
         : {}),
       ...(req.reasoning_effort ? { reasoningEffort: req.reasoning_effort } : {}),
+      ...(req.enable_thinking !== undefined ? { enableThinking: req.enable_thinking } : {}),
       signal,
     },
   )) {
@@ -270,6 +271,7 @@ async function handleStreaming(
           ? { maxTokens: req.max_tokens || req.max_completion_tokens }
           : {}),
         ...(req.reasoning_effort ? { reasoningEffort: req.reasoning_effort } : {}),
+        ...(req.enable_thinking !== undefined ? { enableThinking: req.enable_thinking } : {}),
         signal,
       },
     )) {

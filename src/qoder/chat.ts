@@ -37,6 +37,8 @@ export interface ChatParams {
   tools?: ToolDef[];
   maxTokens?: number;
   reasoningEffort?: string;
+  /** Force thinking on/off, overriding the model's default toggle state. */
+  enableThinking?: boolean;
   signal?: AbortSignal;
 }
 
@@ -137,12 +139,35 @@ function applyEffort(entry: QoderModelEntry | undefined, effort: string | undefi
   };
 }
 
+/**
+ * Force the thinking toggle on or off in `model_config`, mirroring what the
+ * upstream client sends when the user flips a model's thinking switch: both
+ * `enabled` and `disabled` carry an `is_default` flag and only one may win.
+ */
+function applyThinkingToggle(entry: QoderModelEntry, enabled: boolean): QoderModelEntry {
+  const thinking = entry.thinking_config;
+  if (!thinking) {
+    // No toggle config upstream: only an explicit disable can be honored.
+    return enabled ? entry : { ...entry, is_reasoning: false };
+  }
+  return {
+    ...entry,
+    is_reasoning: enabled,
+    thinking_config: {
+      ...thinking,
+      disabled: { ...thinking.disabled, is_default: !enabled },
+      enabled: { ...thinking.enabled, is_default: enabled },
+    },
+  };
+}
+
 function buildRequestBody(
   session: { userID: string },
   wireKey: string,
   modelConfig: QoderModelEntry,
   conversation: { system: string; messages: QoderMessage[]; tools?: unknown },
   params: ChatParams,
+  effort: string | undefined,
 ): Record<string, unknown> {
   const normalized = conversation.messages;
   const isReasoning = !!modelConfig.is_reasoning;
@@ -153,7 +178,6 @@ function buildRequestBody(
   const lastText = lastUserText(normalized);
   const sessionID = stableHash("qoder-session", session.userID, wireKey);
   const recordID = stableRecordId(wireKey, normalized, conversation.tools, maxTokens);
-  const effort = resolveEffort(modelConfig, params.reasoningEffort);
 
   return {
     request_id: crypto.randomUUID(),
@@ -407,15 +431,20 @@ async function openChatStream(
   const session = await deps.auth.getSession();
   const wireKey = deps.catalog.resolveWireKey(params.model);
   const catalogEntry = deps.catalog.getEntry(params.model);
-  const effort = resolveEffort(catalogEntry, params.reasoningEffort);
+  // An explicit thinking toggle wins: disabling also suppresses any effort hint.
+  const effort = params.enableThinking === false ? undefined : resolveEffort(catalogEntry, params.reasoningEffort);
 
   const modelConfig: QoderModelEntry = {
     ...(catalogEntry ?? { is_reasoning: false, max_output_tokens: 32_768, source: "system" }),
     key: wireKey,
   };
-  const configuredConfig = effort ? applyEffort(modelConfig, effort) : modelConfig;
+  let configuredConfig = modelConfig;
+  if (params.enableThinking !== undefined) {
+    configuredConfig = applyThinkingToggle(configuredConfig, params.enableThinking);
+  }
+  if (effort) configuredConfig = applyEffort(configuredConfig, effort) ?? configuredConfig;
 
-  const reqBody = buildRequestBody(session, wireKey, configuredConfig as QoderModelEntry, conversation, params);
+  const reqBody = buildRequestBody(session, wireKey, configuredConfig, conversation, params, effort);
   const bodyBytes = Buffer.from(JSON.stringify(reqBody), "utf8");
   const encoded = Buffer.from(qoderEncodeBody(bodyBytes), "utf8");
   const chatURL = getQoderChatURL(deps.route);

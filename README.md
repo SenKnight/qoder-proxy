@@ -181,6 +181,8 @@ curl -N http://127.0.0.1:8787/v1/chat/completions \
 
 请求/响应遵循 OpenAI Chat Completions 结构；流式使用 `text/event-stream`，以 `data: [DONE]` 结束。推理增量在 `delta.reasoning_content`，工具调用在 `delta.tool_calls`。非流式响应始终携带 `usage`；流式设置 `stream_options.include_usage` 时在末尾的独立 chunk 中返回。上游网关不回传用量，`usage` 为网关按实际收发文本的本地估算（CJK 每字约 1 token、其余约每 4 字节 1 token），用于客户端计费/展示，非上游精确值。
 
+请求体还可携带以下思考控制参数：`enable_thinking: true/false` 强制开启/关闭思考（覆盖模型默认开关，对应上游 `thinking_config` 的 enabled/disabled 默认项）；`reasoning_effort` 选择思考强度（如 `high`，仅当模型支持时生效）。两者同时给出时，`enable_thinking: false` 优先，并忽略 `reasoning_effort`。
+
 ### `GET /health`
 
 无需鉴权，返回服务状态：

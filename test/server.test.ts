@@ -16,6 +16,24 @@ function sseEnvelope(delta: object): string {
   return `data: ${JSON.stringify({ statusCodeValue: 200, body: JSON.stringify({ choices: [{ delta }] }) })}\n\n`;
 }
 
+/** Reverse of the upstream WAF encoding, used to inspect the chat body in tests. */
+function qoderDecodeBody(encoded: string): string {
+  const customAlphabet = "_doRTgHZBKcGVjlvpC,@aFSx#DPuNJme&i*MzLOEn)sUrthbf%Y^w.(kIQyXqWA!";
+  const stdAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let rearranged = "";
+  for (const c of encoded) {
+    if (c === "$") rearranged += "=";
+    else {
+      const idx = customAlphabet.indexOf(c);
+      rearranged += idx >= 0 ? stdAlphabet[idx] : c;
+    }
+  }
+  const n = rearranged.length;
+  const a = Math.floor(n / 3);
+  const std = rearranged.slice(n - a) + rearranged.slice(a, n - a) + rearranged.slice(0, a);
+  return Buffer.from(std, "base64").toString("utf8");
+}
+
 function start(server: Server): Promise<string> {
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => {
@@ -65,6 +83,10 @@ beforeAll(async () => {
               is_vl: true,
               max_output_tokens: 8192,
               max_input_tokens: 180000,
+              thinking_config: {
+                enabled: { is_default: true, efforts: { high: { is_default: true } } },
+                disabled: { is_default: false },
+              },
             },
             { key: "qmodel", enable: true, display_name: "Qwen3.7 Plus", is_vl: false, max_output_tokens: 4096 },
             { key: "disabled", enable: false, display_name: "Nope" },
@@ -172,6 +194,76 @@ describe("relay HTTP surface", () => {
 
     // The upstream body must be WAF-encoded (no raw JSON braces survive).
     expect(lastChatBody.includes('"messages"')).toBe(false);
+  });
+
+  it("disables upstream thinking when enable_thinking is false", async () => {
+    const res = await fetch(`${relayBase}/v1/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: "Bearer secret-key", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        stream: true,
+        enable_thinking: false,
+        reasoning_effort: "high",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    });
+    expect(res.status).toBe(200);
+    await readAll(res);
+    const body = JSON.parse(qoderDecodeBody(lastChatBody)) as {
+      model_config: {
+        is_reasoning: boolean;
+        thinking_config: { enabled: { is_default: boolean }; disabled: { is_default: boolean } };
+      };
+      parameters: { reasoning_effort?: string };
+    };
+    expect(body.model_config.is_reasoning).toBe(false);
+    expect(body.model_config.thinking_config.disabled.is_default).toBe(true);
+    expect(body.model_config.thinking_config.enabled.is_default).toBe(false);
+    // An explicit disable also suppresses any reasoning_effort hint.
+    expect(body.parameters.reasoning_effort).toBeUndefined();
+  });
+
+  it("enables upstream thinking when enable_thinking is true", async () => {
+    const res = await fetch(`${relayBase}/v1/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: "Bearer secret-key", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "auto",
+        stream: true,
+        enable_thinking: true,
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    });
+    expect(res.status).toBe(200);
+    await readAll(res);
+    const body = JSON.parse(qoderDecodeBody(lastChatBody)) as {
+      model_config: {
+        is_reasoning: boolean;
+        thinking_config: { enabled: { is_default: boolean }; disabled: { is_default: boolean } };
+      };
+    };
+    expect(body.model_config.is_reasoning).toBe(true);
+    expect(body.model_config.thinking_config.enabled.is_default).toBe(true);
+    expect(body.model_config.thinking_config.disabled.is_default).toBe(false);
+  });
+
+  it("drops the reasoning flag for models without a toggle when disabled", async () => {
+    const res = await fetch(`${relayBase}/v1/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: "Bearer secret-key", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "qmodel",
+        enable_thinking: false,
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    });
+    expect(res.status).toBe(200);
+    await readAll(res);
+    const body = JSON.parse(qoderDecodeBody(lastChatBody)) as {
+      model_config: { is_reasoning: boolean };
+    };
+    expect(body.model_config.is_reasoning).toBe(false);
   });
 
   it("aggregates a non-streaming completion with usage", async () => {

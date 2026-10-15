@@ -9,6 +9,7 @@ import type {
   ChatCompletionChunk,
   ChatCompletionMessage,
   ChatCompletionRequest,
+  EmbeddingRequest,
   FinishReason,
   ModelInfo,
   ModelListResponse,
@@ -132,6 +133,20 @@ function toModelInfo(config: Config, def: ReturnType<RelayContext["catalog"]["li
     max_output_tokens: def.maxTokens,
     vision: def.vision,
     reasoning: def.reasoning,
+  };
+}
+
+/** Advertise the embeddings upstream so clients can discover it via /v1/models. */
+function embeddingModelInfo(config: Config): ModelInfo {
+  return {
+    id: config.embeddingsModel,
+    object: "model",
+    created: 0,
+    owned_by: "embeddings",
+    context_window: 0,
+    max_output_tokens: 0,
+    vision: false,
+    reasoning: false,
   };
 }
 
@@ -328,6 +343,106 @@ async function handleStreaming(
   safeEnd(res);
 }
 
+function embeddingsUrl(baseUrl: string): string {
+  return `${baseUrl.replace(/\/+$/, "")}/embeddings`;
+}
+
+/** Pull a human-readable message out of an OpenAI-style error payload. */
+function upstreamErrorMessage(text: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object" || !("error" in parsed)) return undefined;
+  const error = (parsed as { error?: unknown }).error;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+  }
+  return undefined;
+}
+
+/**
+ * Forward an embeddings request to the configured OpenAI-compatible upstream
+ * (by default a local Ollama). The configured model always replaces the client's
+ * so clients that hard-code a vendor id (e.g. `text-embedding-3-small`) still
+ * resolve against the local model.
+ */
+async function handleEmbeddings(ctx: RelayContext, body: unknown, res: ServerResponse): Promise<void> {
+  if (!body || typeof body !== "object") throw new HttpError(400, "Request body must be a JSON object");
+  const req = body as EmbeddingRequest;
+  if (req.input === undefined || req.input === null) throw new HttpError(400, "`input` is required");
+
+  const payload: Record<string, unknown> = { model: ctx.config.embeddingsModel, input: req.input };
+  if (req.encoding_format !== undefined) payload.encoding_format = req.encoding_format;
+  if (req.dimensions !== undefined) payload.dimensions = req.dimensions;
+  if (req.user !== undefined) payload.user = req.user;
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (ctx.config.embeddingsApiKey) headers.Authorization = `Bearer ${ctx.config.embeddingsApiKey}`;
+
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, ctx.config.requestTimeoutMs);
+  timer.unref();
+  res.on("close", () => {
+    if (!res.writableEnded) controller.abort();
+  });
+
+  const fail = (status: number, message: string, type = "upstream_error"): void => {
+    if (res.destroyed || res.writableEnded) return;
+    sendError(res, status, message, type);
+  };
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(embeddingsUrl(ctx.config.embeddingsBaseUrl), {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    clearTimeout(timer);
+    if (timedOut) {
+      fail(504, "Embedding upstream timed out");
+    } else if (!controller.signal.aborted) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error("embeddings upstream unreachable", { error: message });
+      fail(502, `Embedding upstream unreachable: ${message}`);
+    }
+    return;
+  }
+  clearTimeout(timer);
+
+  let text: string;
+  try {
+    text = await upstream.text();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error("embeddings upstream read failed", { error: message });
+    fail(502, `Embedding upstream read failed: ${message}`);
+    return;
+  }
+
+  if (!upstream.ok) {
+    logger.warn("embeddings upstream error", { status: upstream.status });
+    const detail = upstreamErrorMessage(text) ?? (text.trim().slice(0, 500) || `Upstream responded ${upstream.status}`);
+    fail(upstream.status, detail);
+    return;
+  }
+
+  if (res.destroyed || res.writableEnded) return;
+  res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", ...corsHeaders() });
+  res.end(text);
+}
+
 async function handleChatCompletions(ctx: RelayContext, body: unknown, res: ServerResponse): Promise<void> {
   const chatReq = normalizeRequest(ctx.config, body);
   const model = chatReq.model as string;
@@ -369,6 +484,7 @@ async function route(ctx: RelayContext, req: IncomingMessage, res: ServerRespons
       mode: ctx.config.mode,
       auth_required: Boolean(ctx.config.clientApiKey),
       default_model: ctx.config.defaultModel,
+      embeddings: { model: ctx.config.embeddingsModel, base_url: ctx.config.embeddingsBaseUrl },
     });
     return;
   }
@@ -380,10 +496,12 @@ async function route(ctx: RelayContext, req: IncomingMessage, res: ServerRespons
 
   if (req.method === "GET" && path === "/v1/models") {
     await ctx.catalog.ensureFresh();
-    const list: ModelListResponse = {
-      object: "list",
-      data: ctx.catalog.list().map((def) => toModelInfo(ctx.config, def)),
-    };
+    const data = ctx.catalog.list().map((def) => toModelInfo(ctx.config, def));
+    const embeddingId = ctx.config.embeddingsModel;
+    if (embeddingId && !data.some((model) => model.id === embeddingId)) {
+      data.push(embeddingModelInfo(ctx.config));
+    }
+    const list: ModelListResponse = { object: "list", data };
     sendJson(res, 200, list);
     return;
   }
@@ -397,6 +515,18 @@ async function route(ctx: RelayContext, req: IncomingMessage, res: ServerRespons
       return;
     }
     await handleChatCompletions(ctx, body, res);
+    return;
+  }
+
+  if (req.method === "POST" && path === "/v1/embeddings") {
+    let body: unknown;
+    try {
+      body = await readJsonBody(req);
+    } catch (error) {
+      sendError(res, 400, error instanceof Error ? error.message : "Invalid request body");
+      return;
+    }
+    await handleEmbeddings(ctx, body, res);
     return;
   }
 

@@ -56,8 +56,14 @@ async function main(): Promise<void> {
       vpc: config.vpcInstance ?? "public",
       auth: config.clientApiKey ? "required" : "disabled",
       defaultModel: config.defaultModel,
+      embeddingsModel: config.embeddingsModel,
     });
-    logger.info("routes", { models: "GET /v1/models", chat: "POST /v1/chat/completions", health: "GET /health" });
+    logger.info("routes", {
+      models: "GET /v1/models",
+      chat: "POST /v1/chat/completions",
+      embeddings: "POST /v1/embeddings",
+      health: "GET /health",
+    });
   });
 
   server.on("error", (error) => {

@@ -34,6 +34,9 @@ export const USAGE = `qoder-proxy — 以 OpenAI 兼容 API 暴露 Qoder 大模�
   --model-cache-ttl <ms>    模型目录缓存时间（默认 3600000）              [env: QODER_MODEL_CACHE_TTL_MS]
   --request-timeout <ms>    上游请求超时（默认 600000）                   [env: QODER_REQUEST_TIMEOUT_MS]
   --cosy-debug              打印非敏感 COSY 诊断信息                      [env: QODER_COSY_DEBUG]
+  --embeddings-base-url <url>  Embeddings 上游基址（默认本地 Ollama 11434） [env: QODER_EMBEDDINGS_BASE_URL]
+  --embeddings-model <id>   Embeddings 模型（默认 qwen3-embedding:0.6b）  [env: QODER_EMBEDDINGS_MODEL]
+  --embeddings-api-key <key>  Embeddings 上游密钥（可选）                  [env: QODER_EMBEDDINGS_API_KEY]
   --log-level <level>       debug | info | warn | error（默认 info）      [env: LOG_LEVEL]
   -h, --help                显示帮助并退出
   -v, --version             显示版本并退出
@@ -155,6 +158,18 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         break;
       case "--no-cosy-debug":
         overrides.cosyDebug = false;
+        break;
+      case "--embeddings-base-url":
+        overrides.embeddingsBaseUrl = readValue(name, i, inline);
+        i += advance(inline);
+        break;
+      case "--embeddings-model":
+        overrides.embeddingsModel = readValue(name, i, inline);
+        i += advance(inline);
+        break;
+      case "--embeddings-api-key":
+        overrides.embeddingsApiKey = readValue(name, i, inline);
+        i += advance(inline);
         break;
       case "--log-level":
         overrides.logLevel = parseLogLevel(name, readValue(name, i, inline));

@@ -38,6 +38,19 @@ describe("parseArgs", () => {
     expect(parseArgs(["--log-level", "debug"]).overrides.logLevel).toBe("debug");
   });
 
+  it("parses embeddings flags", () => {
+    const { overrides } = parseArgs([
+      "--embeddings-base-url",
+      "http://localhost:11434/v1",
+      "--embeddings-model=my-embed",
+      "--embeddings-api-key",
+      "sk-x",
+    ]);
+    expect(overrides.embeddingsBaseUrl).toBe("http://localhost:11434/v1");
+    expect(overrides.embeddingsModel).toBe("my-embed");
+    expect(overrides.embeddingsApiKey).toBe("sk-x");
+  });
+
   it("throws on unknown options", () => {
     expect(() => parseArgs(["--nope"])).toThrow(CliError);
   });
@@ -66,6 +79,9 @@ describe("loadConfig precedence", () => {
     "RELAY_API_KEY",
     "QODER_DEFAULT_MODEL",
     "QODER_COSY_DEBUG",
+    "QODER_EMBEDDINGS_BASE_URL",
+    "QODER_EMBEDDINGS_MODEL",
+    "QODER_EMBEDDINGS_API_KEY",
     "PORT",
     "HOST",
     "LOG_LEVEL",
@@ -117,5 +133,19 @@ describe("loadConfig precedence", () => {
     const config = loadConfig({ mode: "cn", vpcInstance: "xxx-of-enterprise" });
     expect(config.mode).toBe("cn");
     expect(config.vpcInstance).toBe("xxx-of-enterprise");
+  });
+
+  it("applies the built-in embeddings defaults", () => {
+    const config = loadConfig();
+    expect(config.embeddingsBaseUrl).toBe("http://127.0.0.1:11434/v1");
+    expect(config.embeddingsModel).toBe("qwen3-embedding:0.6b");
+    expect(config.embeddingsApiKey).toBe("");
+  });
+
+  it("lets CLI overrides win for embeddings settings", () => {
+    process.env.QODER_EMBEDDINGS_MODEL = "env-model";
+    const config = loadConfig({ embeddingsModel: "cli-model", embeddingsBaseUrl: "http://localhost:1234/v1" });
+    expect(config.embeddingsModel).toBe("cli-model");
+    expect(config.embeddingsBaseUrl).toBe("http://localhost:1234/v1");
   });
 });

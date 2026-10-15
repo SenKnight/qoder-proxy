@@ -117,6 +117,9 @@ beforeAll(async () => {
     modelCacheTtlMs: 60_000,
     requestTimeoutMs: 30_000,
     cosyDebug: false,
+    embeddingsBaseUrl: "http://127.0.0.1:9/v1",
+    embeddingsModel: "qwen3-embedding:0.6b",
+    embeddingsApiKey: "",
     logLevel: "error",
   };
   const ctx: RelayContext = createRelay(config);

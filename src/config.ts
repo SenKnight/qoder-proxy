@@ -16,6 +16,12 @@ export interface Config {
   modelCacheTtlMs: number;
   requestTimeoutMs: number;
   cosyDebug: boolean;
+  /** OpenAI-compatible embeddings upstream base URL (e.g. a local Ollama). */
+  embeddingsBaseUrl: string;
+  /** Model id forwarded to the embeddings upstream. */
+  embeddingsModel: string;
+  /** Optional bearer token for the embeddings upstream. */
+  embeddingsApiKey: string;
   logLevel: LogLevel;
 }
 
@@ -34,6 +40,9 @@ export interface ConfigOverrides {
   modelCacheTtlMs?: number;
   requestTimeoutMs?: number;
   cosyDebug?: boolean;
+  embeddingsBaseUrl?: string;
+  embeddingsModel?: string;
+  embeddingsApiKey?: string;
   logLevel?: LogLevel;
 }
 
@@ -146,6 +155,9 @@ export function loadConfig(overrides: ConfigOverrides = {}): Config {
     modelCacheTtlMs: overrides.modelCacheTtlMs ?? envInt(3_600_000, "QODER_MODEL_CACHE_TTL_MS"),
     requestTimeoutMs: overrides.requestTimeoutMs ?? envInt(600_000, "QODER_REQUEST_TIMEOUT_MS"),
     cosyDebug: overrides.cosyDebug ?? envBool("QODER_COSY_DEBUG"),
+    embeddingsBaseUrl: pickStr(overrides.embeddingsBaseUrl, "QODER_EMBEDDINGS_BASE_URL") || "http://127.0.0.1:11434/v1",
+    embeddingsModel: pickStr(overrides.embeddingsModel, "QODER_EMBEDDINGS_MODEL") || "qwen3-embedding:0.6b",
+    embeddingsApiKey: pickStr(overrides.embeddingsApiKey, "QODER_EMBEDDINGS_API_KEY"),
     logLevel: normalizeLogLevel(overrides.logLevel ?? envStr("LOG_LEVEL")),
   };
 }

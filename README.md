@@ -10,7 +10,7 @@
 
 ## 特性
 
-- **OpenAI 兼容**：提供 `GET /v1/models` 与 `POST /v1/chat/completions`（支持流式与非流式）。
+- **OpenAI 兼容**：提供 `GET /v1/models`、`POST /v1/chat/completions`（支持流式与非流式）与 `POST /v1/embeddings`（透传到可配置的 OpenAI 兼容上游，默认本地 Ollama）。
 - **用量统计**：上游不回传用量时，网关按实际收发文本估算 `usage`（`prompt_tokens` / `completion_tokens` / `total_tokens`）；上游回传则优先透传。
 - **推理内容**：透传 `reasoning_content`，客户端可展示思考过程。
 - **工具调用**：透传 OpenAI `tools` / `tool_calls`，支持 agent 工具循环。
@@ -140,8 +140,13 @@ export OPENAI_API_KEY=$RELAY_API_KEY
 | `--request-timeout <ms>` | `QODER_REQUEST_TIMEOUT_MS` | `600000` | 单次请求总时长上限（毫秒）。 |
 | `--log-level <level>` | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error`。 |
 | `--cosy-debug` | `QODER_COSY_DEBUG` | 关闭 | 打印非敏感 COSY 诊断（URL / 状态 / 哈希）。 |
+| `--embeddings-base-url <url>` | `QODER_EMBEDDINGS_BASE_URL` | `http://127.0.0.1:11434/v1` | Embeddings 上游基址（OpenAI 兼容，如本地 Ollama）。 |
+| `--embeddings-model <id>` | `QODER_EMBEDDINGS_MODEL` | `qwen3-embedding:0.6b` | 转发给 Embeddings 上游的模型 id。 |
+| `--embeddings-api-key <key>` | `QODER_EMBEDDINGS_API_KEY` | 空 | Embeddings 上游的 Bearer 密钥（如需）。 |
 
 CN 基址也可用 `QODER_CN_BASE_URL` / `QODER_CN_OPENAPI_URL` 覆盖（主要用于自定义部署与测试）。
+
+Embeddings 默认指向本机 Ollama（`http://127.0.0.1:11434/v1` + `qwen3-embedding:0.6b`）；未运行 Ollama 时该端点返回 `502`，可通过上面的配置项改用其它 OpenAI 兼容上游。
 
 ---
 
@@ -183,6 +188,19 @@ curl -N http://127.0.0.1:8787/v1/chat/completions \
 
 请求体还可携带以下思考控制参数：`enable_thinking: true/false` 强制开启/关闭思考（布尔值，转发为上游 `parameters.enable_thinking`，已对真实网关验证有效）；`reasoning_effort` 选择思考强度（如 `high`，仅当模型支持时生效）。两者同时给出时，`enable_thinking: false` 优先，并忽略 `reasoning_effort`。
 
+### `POST /v1/embeddings`
+
+将请求**透传**到配置的 OpenAI 兼容 Embeddings 上游（默认本地 Ollama），并把响应**原样返回**。请求中的 `model` 会被**替换**为 `QODER_EMBEDDINGS_MODEL`（默认 `qwen3-embedding:0.6b`），因此客户端即使写死 `text-embedding-3-small` 之类的模型名也能正常工作——适合仅做「探测 / 兼容」的场景。
+
+```bash
+curl http://127.0.0.1:8787/v1/embeddings \
+  -H "Authorization: Bearer $RELAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen3-embedding:0.6b","input":"你好，世界"}'
+```
+
+`input` 支持字符串或字符串数组；`dimensions`、`encoding_format`、`user` 会一并透传（是否生效取决于上游）。上游不可达返回 `502`，超时返回 `504`，上游错误状态与消息原样映射。响应结构与 OpenAI Embeddings 一致（`object: "list"`、`data[].embedding`、`usage`）。
+
 ### `GET /health`
 
 无需鉴权，返回服务状态：
@@ -198,6 +216,8 @@ curl -N http://127.0.0.1:8787/v1/chat/completions \
 ## 模型
 
 `GET /v1/models` **动态镜像上游模型目录**（`/algo/api/v2/model/list`）：上游每个启用模型都会出现，其 `id` 由上游 `display_name` 美化后（如 `Qwen3.7-Plus` → `Qwen 3.7-Plus`）再追加**区域后缀**——CN 为 ` · Qoder-CN`，Global 为 ` · Qoder`（默认模型 `Auto` 也带后缀）。命名规则与 pi-provider-qoder 的 `getQoderCNFriendlyModelInfo`（`prettifyQoderCNModelName`）保持一致。
+
+配置的 Embeddings 模型（`QODER_EMBEDDINGS_MODEL`，默认 `qwen3-embedding:0.6b`）也会一并出现在 `GET /v1/models` 中（`owned_by: "embeddings"`），方便客户端探测并定位嵌入端点。
 
 上游原始 wire key 不对外暴露。调用 `POST /v1/chat/completions` 时，`model` 可写带后缀的 id（如 `Qwen 3.7-Plus · Qoder-CN`）、不含后缀的美化名，或已知的上游 wire key，服务端都会自动解析回真实 key。
 

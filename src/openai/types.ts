@@ -133,6 +133,38 @@ export interface ModelListResponse {
   data: ModelInfo[];
 }
 
+/** Subset of the OpenAI Embeddings schema used by the relay's upstream passthrough. */
+export type EmbeddingInput = string | string[] | number[] | number[][];
+
+export interface EmbeddingRequest {
+  model?: string;
+  input: EmbeddingInput;
+  encoding_format?: "float" | "base64";
+  /** Requested vector length; honored by upstreams that support Matryoshka (MRL). */
+  dimensions?: number;
+  user?: string;
+  [key: string]: unknown;
+}
+
+export interface EmbeddingData {
+  object: "embedding";
+  index: number;
+  embedding: number[] | string;
+}
+
+/** Embedding usage reports only prompt/total tokens (no completion tokens). */
+export interface EmbeddingUsage {
+  prompt_tokens: number;
+  total_tokens: number;
+}
+
+export interface EmbeddingResponse {
+  object: "list";
+  data: EmbeddingData[];
+  model: string;
+  usage?: EmbeddingUsage;
+}
+
 export interface ApiErrorBody {
   error: { message: string; type: string; param?: string | null; code?: string | null };
 }
